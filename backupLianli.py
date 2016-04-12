@@ -26,26 +26,28 @@ WAS_OFF = None
 
 def _timer(func, timeout=600, interval=5, run_until=True, verbose=False):
     '''run func for timeout seconds or until run_until every interval'''
-    def inner(**kwargs):
+    def inner(*args, **kwargs):
         time_start = time.time()
         time_end = time_start + timeout
+        last_run = ''
         while time.time() < time_end:
             try:
-                retval = func(**kwargs)
+                retval = func(*args, **kwargs)
+                last_run = time.time()
             except TypeError as e:
                 raise e
             if retval != run_until:
                 if verbose:
                     print('{}({}) returns {} @ {}'.format(
                                                      func.__name__
-                                                     ,kwargs
+                                                     ,(args, kwargs)
                                                      ,retval
                                                      ,time.time()
                                                      )
                           )
                 time.sleep(interval)
             else:
-                return retval
+                return (time_start, last_run)
     return inner
 
 def runBackup(host, wait = 0):
@@ -90,21 +92,23 @@ def shuffle():
 
 def shutdown(host):
     #Shutdown of remote machine succeeded
+    cmd_text = ['net','rpc','shutdown','-I',host,'-U','ghjeffeii%'.format(pw)]
     regex_pw = re.compile('<?=password=)\w*')
     pw = regex_pw.search(regex_pw, open('/home/ghjeffeii/.smbcreds', mode='r', encoding='utf8'))
-    proc_shutdown = subprocess.Popen(['net','rpc','shutdown','-I',host,'-U','ghjeffeii%'.format(pw)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    std_out, std_err = proc_shutdown.communicate()
+    proc_shutdown = subprocess.check_output(cmd_text, timeout=5)
+    if 'succeeded' in proc_shutdown.decode('utf8').lower():
+        return True
+    else:
+        return False
     
 def is_alive(host, attempts = 1):
+    cmd_text = ['ping', '-w', '.1', '-c', str(attempts), host]
     try:
-        proc_ping = subprocess.check_output(
-                                    ['ping', '-w', '.1', '-c', str(attempts), host]
-                                    ,timeout=.5
-                                    )
-    except: 
+        proc_ping = subprocess.check_output(cmd_text, timeout=.5)
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
         return False
     else:
-        return True if 'ttl' in proc_ping.decode('utf8') else False
+        return True if 'ttl' in proc_ping.decode('utf8').lower() else False
 
 def wakeMachine(macAddr):
     try:
@@ -153,32 +157,30 @@ def rsync():
 def main(host):
     sleepTimer = 5
     waitTimer = 600 #wait seconds for host to wake
-    aliveCode, aliveMsg = is_alive(host)
-    if not aliveCode: #machine is not alive
+    if not is_alive(host): #machine is not alive
         WAS_OFF = True
         print("{0} not online".format(host))
         wakeCode, wakeMsg = wakeMachine(macs[host])
         if wakeCode: #wake signal has been sent successfully
             timeStart = time.time()
-            while (time.time() - timeStart < waitTimer): #still time left
-                if not aliveCode: #no response from host
-                    aliveCode, aliveMsg = is_alive(host)
-                    time.sleep(sleepTimer)
-                elif aliveCode: #host has responded
-                    retVal = runBackup(host, wait=20) #host has just woken, allow it to get bearings (rise and shine)
+            while (time.time() - timeStart) < waitTimer: #still time left
+                if is_alive(host): #host has responded
+                    retVal = runBackup(host, wait=60) #host has just woken, allow it to get bearings (rise and shine)
                     break
+                else:
+                    time.sleep(sleepTimer)
             else: #timed out
-                print("Exiting. {0} unwakeable.".format(host))
+                print("Exiting. {0} has not awoke timely.".format(host))
                 retVal = (False, "{0} is not alive".format(host))
         else: #wake signal not sent
             retVal = (False, wakeMsg)
-    elif aliveCode:
+    else:
         WAS_OFF = False
         retVal = runBackup(host) #host already alive, immediately begin backup
-    else:
-        with open(logFile, 'a') as f:
-            f.write("{0} Unable to contact {1}\n".format(time.strftime('%Y/%m/%d %H:%M:%S'),host))
-        retVal = (False, "Error logged")
+#     else:
+#         with open(logFile, 'a') as f:
+#             f.write("{0} Unable to contact {1}\n".format(time.strftime('%Y/%m/%d %H:%M:%S'),host))
+#         retVal = (False, "Error logged")
 
     print("main returns: {0} for host {1}".format(retVal, host))
     return retVal
