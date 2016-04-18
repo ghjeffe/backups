@@ -57,6 +57,6 @@ host = 'lianli'
 timer_alive_true_verb = _timer(is_alive, run_until=True, verbose=True)
 timer_alive_false_verb = _timer(is_alive, run_until=False, verbose=True)
 ret_shut = shutdown(host)
-ret_alive = timer_alive_true_verb(host)
+ret_alive = timer_alive_false_verb(host)
 if ret_alive is not None:
     print('{} successfully shutdown at {}'.format(host, ret_alive[1]))
