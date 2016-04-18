@@ -5,7 +5,10 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
+
+from utilities import timer
 
 
 ### VARIABLES
@@ -21,38 +24,12 @@ logFile = '{0}/{1}'.format(backupDst,'log')
 cludeFile = '{0}/{1}'.format(backupDst,'cludes')
 perms = "ug+rx,o-rwx" #used for --chmod; can be prefixed with D for directories or F for files
 intPerms=664 #used in mkdir 
-VERBOSE = FALSE
+VERBOSE = False
 MAC_ADDRS = {
     'lianli':'00:03:47:f8:7d:b1'
     }
 WAS_OFF = None
 
-
-def _timer(func, timeout=600, interval=5, run_until=True, verbose=False):
-    '''run func for timeout seconds or until run_until every interval'''
-    def inner(*args, **kwargs):
-        time_start = time.time()
-        time_end = time_start + timeout
-        last_run = ''
-        while time.time() < time_end:
-            try:
-                retval = func(*args, **kwargs)
-                last_run = time.time()
-            except TypeError as e:
-                raise e
-            if retval != run_until:
-                if verbose:
-                    print('{}({}) returns {} @ {}'.format(
-                                                     func.__name__
-                                                     ,(args, kwargs)
-                                                     ,retval
-                                                     ,time.time()
-                                                     )
-                          )
-                time.sleep(interval)
-            else:
-                return (time_start, last_run)
-    return inner
 
 def run_backup(host, wait = 0):
     def perform_backup():
@@ -66,22 +43,20 @@ def run_backup(host, wait = 0):
         return (True, "Ran to completion")
 
     #ensure mount point is available
-    proc = subprocess.Popen(['cat','/proc/mounts'], stdout = subprocess.PIPE, stderr = subprocess.PIPE)
-    out, err = proc.communicate()
-    strOut = str(out)
-    regex = re.compile(r'(//{0}/\w+\$?) (/mnt/{0})'.format(host))
-    if regex.search(strOut): #mount point exists, continue with backup
-        retVal = perform_backup()
+    mounts = subprocess.check_output(['cat','/proc/mounts'], stderr = subprocess.PIPE)
+    regex_host_mount = re.compile(r'(//{0}/\w+\$?) (/mnt/{0})'.format(host))
+    if regex_host_mount.search(mounts): #mount point exists, continue with backup
+        retval = perform_backup()
     else: #attempt to mount
-        cmdText = ['mount','/mnt/' + host]
-        mount = subprocess.Popen(cmdText, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
-        out, err = mount.communicate()
-        if mount.returncode == 0:
-            retVal = perform_backup()
+        cmd_text = ['mount','/mnt/{}'.format(host)]
+        proc_mount = subprocess.Popen(cmd_text, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
+        out, err = proc_mount.communicate()
+        if proc_mount.returncode == 0:
+            retval = perform_backup()
         else: #unable to mount filesystem to perform backup, must exit
-            retVal = False
+            retval = False
 
-    return retVal
+    return retval
 
 def shuffle_dirs():
     print("Shuffling dirs")
@@ -117,9 +92,9 @@ def is_alive(host, attempts = 1):
     else:
         return True if 'ttl' in proc_ping.decode('utf8').lower() else False
 
-def wake_machine(macAddr):
+def wake_machine(mac_addr):
     try:
-        subprocess.check_output(['/bin/wol',macAddr]
+        subprocess.check_output(['/bin/wol',mac_addr]
                                 ,stderr=subprocess.PIPE
                                 )
         return True
@@ -127,9 +102,6 @@ def wake_machine(macAddr):
             ,subprocess.CalledProcessError #bad argument
             ):
         return False
-
-    print("Wake: {0}".format(retVal))
-    return retVal
 
 def rsync():
     '''
@@ -155,7 +127,22 @@ def rsync():
             -l, --links                 copy symlinks as symlinks
          -t, --times                 preserve modification times
     '''
-    os.system('rsync -rltvz --progress --stats --chmod {5} --link-dest={0} --exclude-from={1} --log-file={2} {3} {4}'.format(linkDest,cludeFile,logFile,backupSrc,targetDir,perms))
+    rsync_kwargs = {'link_dest' : ''
+                    ,'clude_file' : ''
+                    ,'log_file' : ''
+                    ,'backup_src' : ''
+                    ,'target_dir' : ''
+                    ,'perms' : ''
+                    }
+    cmd_text = ['rsync', '-rltvz', '--progress', '--stats'
+                ,'--chmod {}'.format(rsync_kwargs['perms'])
+                ,'--link-dest={}'.format(rsync_kwargs['link_dest'])
+                ,'--exclude-from={}'.format(rsync_kwargs['clude_file'])
+                ,'--log-file={2} {3} {4}'
+                ]
+    #.format(linkDest,cludeFile,logFile,backupSrc,targetDir,perms)
+    #os.system('rsync -rltvz --progress --stats --chmod {5} --link-dest={0} --exclude-from={1} --log-file={2} {3} {4}'.format(linkDest,cludeFile,logFile,backupSrc,targetDir,perms))
+    rsync_output = 
 
 # def main(host):
 #     sleepTimer = 5
@@ -198,34 +185,31 @@ def main():
                         ,action='store_true' #false by default
                         )
     parser.add_argument('--verbose'
-                        ,help='specify for print statements'
+                        ,help='set for print statements'
                         ,action='store_true' #false by default
                         )
     
     args = parser.parse_args()
-    timer_is_alive = _timer(is_alive, run_until=True, verbose=True)
-    timer_is_dead = _timer(is_alive, run_until=False, verbose=True)
-    if is_alive(args.host):
+    timer_is_alive = timer(is_alive, run_until=True, verbose=True)
+    timer_is_dead = timer(is_alive, run_until=False, verbose=True)
+    if is_alive(args.host): #host online
         WAS_OFF = False
-        retval = run_backup(args.host, wait=30)
-    else:
+        backup_retval = run_backup(args.host, wait=30)
+    elif args.aggressive: #host offline and we need to wake
         WAS_OFF = True
-    if WAS_OFF:
-        wake_machine(MAC_ADDRS[host])
-        alive_retval = timer_is_alive(host)
-        if alive_retval:
-            retval = run_backup(args.host, wait=30)
-            if WAS_OFF:
-                if shutdown(host):
-                    dead_retval = timer_is_dead(args.host)
-                    if dead_retval:
-                        print('{} is dead'.format(host))
+        if wake_machine(MAC_ADDRS[args.host]):
+            alive_retval = timer_is_alive(args.host)
+            if alive_retval: #host now online
+                backup_retval = run_backup(args.host, wait=30)
+                if shutdown(args.host):
+                    if timer_is_dead(args.host):
+                        print('{} is dead'.format(args.host))
                     else:
-                        print('{} is not killable'.format(host))
+                        print('{} is not killable'.format(args.host))
                 else:
                     print('shutdown failed', file=sys.stderr)
         else:
-            print('{} is not wakeable'.format(host), file=sys.stderr)
+            print('{} is not wakeable'.format(args.host), file=sys.stderr)
 
 if __name__ == "__main__":
     sys.exit(main())
