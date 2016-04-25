@@ -10,36 +10,26 @@ import time
 
 from utilities import timer
 
-
-### VARIABLES
-backupCount = 21 #(3 weeks)
-backupDst = '/backups'
-backupSrc = '/mnt/lianli/'
-rsync = '/bin/rsync'
-baseDir = 'lianli'
-lastDir = '{0}.{1}'.format(baseDir,str(backupCount)) #last directory to keep
-targetDir = '{0}/{1}{2}'.format(backupDst,baseDir,'.00') #newest directory
-linkDest = '{0}/{1}{2}'.format(backupDst,baseDir,'.01')
-logFile = '{0}/{1}'.format(backupDst,'log')
-cludeFile = '{0}/{1}'.format(backupDst,'cludes')
-perms = "ug+rx,o-rwx" #used for --chmod; can be prefixed with D for directories or F for files
-intPerms=664 #used in mkdir 
+HOST = None
+BACKUP_COUNT = 21 #(3 weeks)
+BACKUP_ROOT = '/backups'
 VERBOSE = False
 MAC_ADDRS = {
-    'lianli':'00:03:47:f8:7d:b1'
-    }
+             'lianli':'00:03:47:f8:7d:b1'
+             }
 WAS_OFF = None
 
 
 def run_backup(host, wait = 0):
+    int_perms=664 #used in mkdir
     def perform_backup():
         time.sleep(wait)
-        os.chdir(backupDst)
+        os.chdir(backup_root)
         shuffle_dirs()
-        os.mkdir(targetDir, intPerms)
-        shutil.copy('cludes',targetDir + '/') #capture cludes file for backup validation
+        os.mkdir(target_dir, int_perms)
+        shutil.copy('cludes',target_dir + '/') #capture cludes file for backup validation
         rsync()
-        os.utime(targetDir, None) #update timestamp of newest directory
+        os.utime(target_dir, None) #update timestamp of newest directory
         return (True, "Ran to completion")
 
     #ensure mount point is available
@@ -59,14 +49,18 @@ def run_backup(host, wait = 0):
     return retval
 
 def shuffle_dirs():
-    print("Shuffling dirs")
-    for i in range(backupCount, -1, -1):
-        d = baseDir + '.' + str(i).zfill(2)
+    base_dir = HOST
+    last_dir = '{0}.{1}'.format(base_dir,str(backup_count)) #last directory to keep
+    if VERBOSE:
+        print("Shuffling dirs")
+    #iterate backward from back up count to rename dirs
+    for i in range(BACKUP_COUNT, -1, -1):
+        d = base_dir + '.' + str(i).zfill(2)
         if os.access(d, os.F_OK):
-            if d == lastDir:
+            if d == last_dir:
                 shutil.rmtree(d) #remove oldest directory, if exists
             else:
-                shutil.move(d, baseDir + '.' + str(i + 1).zfill(2))
+                shutil.move(d, base_dir + '.' + str(i + 1).zfill(2))
 
 def shutdown(host):
     #Shutdown of remote machine succeeded
@@ -127,6 +121,13 @@ def rsync():
             -l, --links                 copy symlinks as symlinks
          -t, --times                 preserve modification times
     '''
+    rsync = '/bin/rsync'
+    backup_src = '/mnt/lianli/'
+    target_dir = '{0}/{1}.00'.format(backup_root,base_dir) #newest directory
+    link_dest = '{0}/{1}{2}.01'.format(backup_root,base_dir)
+    log_file = '{0}/{1}'.format(backup_root,'log')
+    clude_file = '{0}/{1}'.format(backup_root,'cludes')
+    perms = "ug+rx,o-rwx" #used for --chmod; can be prefixed with D for directories or F for files
     rsync_kwargs = {'link_dest' : ''
                     ,'clude_file' : ''
                     ,'log_file' : ''
@@ -140,8 +141,8 @@ def rsync():
                 ,'--exclude-from={}'.format(rsync_kwargs['clude_file'])
                 ,'--log-file={2} {3} {4}'
                 ]
-    #.format(linkDest,cludeFile,logFile,backupSrc,targetDir,perms)
-    #os.system('rsync -rltvz --progress --stats --chmod {5} --link-dest={0} --exclude-from={1} --log-file={2} {3} {4}'.format(linkDest,cludeFile,logFile,backupSrc,targetDir,perms))
+    #.format(link_dest,clude_file,log_file,backup_src,target_dir,perms)
+    #os.system('rsync -rltvz --progress --stats --chmod {5} --link-dest={0} --exclude-from={1} --log-file={2} {3} {4}'.format(link_dest,clude_file,log_file,backup_src,target_dir,perms))
     rsync_output = 
 
 # def main(host):
@@ -168,7 +169,7 @@ def rsync():
 #         WAS_OFF = False
 #         retVal = run_backup(host) #host already alive, immediately begin backup
 # #     else:
-# #         with open(logFile, 'a') as f:
+# #         with open(log_file, 'a') as f:
 # #             f.write("{0} Unable to contact {1}\n".format(time.strftime('%Y/%m/%d %H:%M:%S'),host))
 # #         retVal = (False, "Error logged")
 # 
