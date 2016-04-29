@@ -25,3 +25,14 @@ def timer(func, timeout=600, interval=5, run_until=True, verbose=False):
             else:
                 return (time_start, last_run)
     return inner
+
+def pretend(func):
+    def inner(*args, **kwargs):
+        wait = kwargs.setdefault('wait', 0)
+        print('pretended to run {}, sleeping {}'.format(
+                                                        func.__name__
+                                                        ,wait
+                                                        )
+              )
+        time.sleep(wait)
+    return inner

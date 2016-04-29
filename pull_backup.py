@@ -8,11 +8,12 @@ import subprocess
 import sys
 import time
 
-from utilities import timer
+from utilities import timer, pretend
 
 HOST = None
 BACKUP_COUNT = 21 #(3 weeks)
-BACKUP_ROOT = '/backups'
+BACKUP_DST_ROOT = '/backups'
+BACKUP_SRC_ROOT = '/mnt'
 VERBOSE = False
 MAC_ADDRS = {
              'lianli':'00:03:47:f8:7d:b1'
@@ -20,6 +21,7 @@ MAC_ADDRS = {
 WAS_OFF = None
 
 
+@pretend
 def run_backup(host, wait = 0):
     int_perms=664 #used in mkdir
     def perform_backup():
@@ -121,60 +123,29 @@ def rsync():
             -l, --links                 copy symlinks as symlinks
          -t, --times                 preserve modification times
     '''
-    rsync = '/bin/rsync'
-    backup_src = '/mnt/lianli/'
-    target_dir = '{0}/{1}.00'.format(backup_root,base_dir) #newest directory
-    link_dest = '{0}/{1}{2}.01'.format(backup_root,base_dir)
-    log_file = '{0}/{1}'.format(backup_root,'log')
-    clude_file = '{0}/{1}'.format(backup_root,'cludes')
-    perms = "ug+rx,o-rwx" #used for --chmod; can be prefixed with D for directories or F for files
-    rsync_kwargs = {'link_dest' : ''
-                    ,'clude_file' : ''
-                    ,'log_file' : ''
-                    ,'backup_src' : ''
-                    ,'target_dir' : ''
-                    ,'perms' : ''
+    new_dir_suffix = '.00'
+    link_dir_suffix = '.01'
+    host_root_src_dir = os.path.join(BACKUP_SRC_ROOT, HOST)
+    host_root_dst_dir = os.path.join(BACKUP_DST_ROOT, HOST)
+    rsync_kwargs = {
+                    'rsync_cmd' : '/bin/rsync'
+                    ,'link_dest' : '{}{}'.format(host_root_dst_dir, link_dir_suffix)
+                    ,'clude_file' : os.path.join(host_root_dst_dir, 'cludes')
+                    ,'log_file' : os.path.join(host_root_dst_dir, 'backup.log')
+                    ,'backup_src' : host_root_src_dir
+                    ,'target_dir' : '{}{}'.format(host_root_dst_dir, new_dir_suffix)
+                    ,'perms' : 'ug+rx,o-rwx' #used for --chmod; can be prefixed with D for directories or F for files
                     }
-    cmd_text = ['rsync', '-rltvz', '--progress', '--stats'
-                ,'--chmod {}'.format(rsync_kwargs['perms'])
-                ,'--link-dest={}'.format(rsync_kwargs['link_dest'])
-                ,'--exclude-from={}'.format(rsync_kwargs['clude_file'])
-                ,'--log-file={2} {3} {4}'
-                ]
-    #.format(link_dest,clude_file,log_file,backup_src,target_dir,perms)
-    #os.system('rsync -rltvz --progress --stats --chmod {5} --link-dest={0} --exclude-from={1} --log-file={2} {3} {4}'.format(link_dest,clude_file,log_file,backup_src,target_dir,perms))
-    rsync_output = 
-
-# def main(host):
-#     sleepTimer = 5
-#     waitTimer = 600 #wait seconds for host to wake
-#     if not is_alive(host): #machine is not alive
-#         WAS_OFF = True
-#         print("{0} not online".format(host))
-#         wakeCode, wakeMsg = wake_machine(MAC_ADDRS[host])
-#         if wakeCode: #wake signal has been sent successfully
-#             timeStart = time.time()
-#             while (time.time() - timeStart) < waitTimer: #still time left
-#                 if is_alive(host): #host has responded
-#                     retVal = run_backup(host, wait=60) #host has just woken, allow it to get bearings (rise and shine)
-#                     break
-#                 else:
-#                     time.sleep(sleepTimer)
-#             else: #timed out
-#                 print("Exiting. {0} has not awoke timely.".format(host))
-#                 retVal = (False, "{0} is not alive".format(host))
-#         else: #wake signal not sent
-#             retVal = (False, wakeMsg)
-#     else:
-#         WAS_OFF = False
-#         retVal = run_backup(host) #host already alive, immediately begin backup
-# #     else:
-# #         with open(log_file, 'a') as f:
-# #             f.write("{0} Unable to contact {1}\n".format(time.strftime('%Y/%m/%d %H:%M:%S'),host))
-# #         retVal = (False, "Error logged")
-# 
-#     print("main returns: {0} for host {1}".format(retVal, host))
-#     return retVal
+    cmd_text = (
+                '{rsync_cmd} --rltvz --progress --stats'
+                ' --chmod {perms}'
+                ' --link-dest={link_dest}'
+                ' --exclude-from={clude_file}'
+                ' --log-file={log_file}'
+                ' {backup_src}'
+                ' {target_dir}'
+                ).format(**rsync_kwargs)
+    rsync_output = subprocess.check_output(cmd_text) 
 
 def main():
     parser = ArgumentParser(description='Pull backup for specified host, waking and shutting if desired'
@@ -191,26 +162,45 @@ def main():
                         )
     
     args = parser.parse_args()
-    timer_is_alive = timer(is_alive, run_until=True, verbose=True)
-    timer_is_dead = timer(is_alive, run_until=False, verbose=True)
+    VERBOSE = args.verbose
+    HOST = args.host
+    timer_host_alive = timer(is_alive
+                             ,run_until=True
+                             ,interval=10
+                             ,verbose=VERBOSE
+                             )
+    timer_host_dead = timer(is_alive
+                            ,run_until=False
+                            ,interval=10
+                            ,verbose=VERBOSE
+                            )
     if is_alive(args.host): #host online
         WAS_OFF = False
-        backup_retval = run_backup(args.host, wait=30)
+        backup_retval = run_backup(HOST, wait=30)
     elif args.aggressive: #host offline and we need to wake
         WAS_OFF = True
-        if wake_machine(MAC_ADDRS[args.host]):
-            alive_retval = timer_is_alive(args.host)
+        if wake_machine(MAC_ADDRS[HOST]):
+            alive_retval = timer_host_alive(HOST)
             if alive_retval: #host now online
-                backup_retval = run_backup(args.host, wait=30)
-                if shutdown(args.host):
-                    if timer_is_dead(args.host):
-                        print('{} is dead'.format(args.host))
+                backup_retval = run_backup(HOST, wait=30)
+                if shutdown(HOST):
+                    retval_host_dead = timer_host_dead(HOST) 
+                    if retval_host_dead:
+                        print('{} is dead; duration: {}'.format(HOST
+                                                                ,retval_host_dead
+                                                                )
+                              )
                     else:
-                        print('{} is not killable'.format(args.host))
+                        print('{} is not killable'.format(HOST))
                 else:
                     print('shutdown failed', file=sys.stderr)
+            else:
+                print('{} is not wakeable'.format(HOST), file=sys.stderr)
         else:
-            print('{} is not wakeable'.format(args.host), file=sys.stderr)
+            print('wake command failed', file=sys.stderr)
+
+def main2():
+    rsync()
 
 if __name__ == "__main__":
     sys.exit(main())
