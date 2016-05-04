@@ -10,32 +10,108 @@ import time
 
 from utilities import timer, pretend
 
-HOST = None
 BACKUP_COUNT = 21 #(3 weeks)
 BACKUP_DST_ROOT = '/backups'
 BACKUP_SRC_ROOT = '/mnt'
-VERBOSE = False
 MAC_ADDRS = {
              'lianli':'00:03:47:f8:7d:b1'
              }
-WAS_OFF = None
 
 
-@pretend
-def run_backup(host, wait = 0):
+def run_backup(host, verbose=False, wait=0):
     int_perms=664 #used in mkdir
+    host_root_src_dir = os.path.join(BACKUP_SRC_ROOT, host)
+    host_root_dst_dir = os.path.join(BACKUP_DST_ROOT, host)
+    new_dir_suffix = '.00'
+    link_dir_suffix = '.01'
+    new_dir = os.path.join(
+                           host_root_dst_dir
+                           ,'{}{}'.format(
+                                          host
+                                          ,new_dir_suffix
+                                          )
+                           )
+    #hard links will be set between new_dir and link_dir for data de-duplication
+    link_dir = os.path.join(
+                            host_root_dst_dir
+                           ,'{}{}'.format(
+                                          host
+                                          ,link_dir_suffix
+                                          )
+                           )
+    last_dir = '{}.{}'.format(new_dir, str(BACKUP_COUNT)) #last directory to keep
+
+    def shuffle_dirs():
+        if verbose:
+            print("Shuffling dirs")
+        #iterate backward from back up count to rename dirs
+        for i in range(BACKUP_COUNT, -1, -1):
+            d = os.path.join(host_root_dst_dir, host '.' + str(i).zfill(2)
+            print(d)
+            if os.access(d, os.F_OK):
+                if d == last_dir:
+                    shutil.rmtree(d) #remove oldest directory, if exists
+                else:
+                    shutil.move(d, new_dir + '.' + str(i + 1).zfill(2))
+    
     def perform_backup():
         time.sleep(wait)
-        os.chdir(backup_root)
+        os.chdir(host_root_dst_dir)
         shuffle_dirs()
-        os.mkdir(target_dir, int_perms)
-        shutil.copy('cludes',target_dir + '/') #capture cludes file for backup validation
+        os.mkdir(new_dir, int_perms)
+        shutil.copy('cludes', new_dir + '/') #capture cludes file for backup validation
         rsync()
-        os.utime(target_dir, None) #update timestamp of newest directory
-        return (True, "Ran to completion")
+        os.utime(new_dir, None) #update timestamp of newest directory
+        return True
 
+    def rsync():
+        '''
+         Run rsync
+         Rsync options:
+            -v, --verbose               increase verbosity
+            -q, --quiet                 suppress non-error messages
+                --no-motd               suppress daemon-mode MOTD (see caveat)
+            -c, --checksum              skip based on checksum, not mod-time & size
+            -a, --archive               archive mode; equals -rlptgoD (no -H,-A,-X)
+                --no-OPTION             turn off an implied OPTION (e.g. --no-D)
+            -r, --recursive             recurse into directories
+            -R, --relative              use relative path names
+                --no-implied-dirs       don't send implied dirs with --relative
+            -b, --backup                make backups (see --suffix & --backup-dir)
+                --backup-dir=DIR        make backups into hierarchy based in DIR
+                --suffix=SUFFIX         backup suffix (default ~ w/o --backup-dir)
+            -u, --update                skip files that are newer on the receiver
+                --inplace               update destination files in-place
+                --append                append data onto shorter files
+                --append-verify         --append w/old data in file checksum
+            -d, --dirs                  transfer directories without recursing
+            -l, --links                 copy symlinks as symlinks
+            -t, --times                 preserve modification times
+        '''
+        rsync_kwargs = {
+                        'rsync_cmd' : '/bin/rsync'
+                        ,'link_dest' : '{}{}'.format(host_root_dst_dir, link_dir_suffix)
+                        ,'clude_file' : os.path.join(host_root_dst_dir, 'cludes')
+                        ,'log_file' : os.path.join(host_root_dst_dir, 'backup.log')
+                        ,'backup_src' : host_root_src_dir
+                        ,'new_dir' : new_dir
+                        ,'perms' : 'ug+rx,o-rwx' #used for --chmod; can be prefixed with D for directories or F for files
+                        }
+        cmd_text = (
+                    '{rsync_cmd} --rltvz --progress --stats'
+                    ' --chmod {perms}'
+                    ' --link-dest={link_dest}'
+                    ' --exclude-from={clude_file}'
+                    ' --log-file={log_file}'
+                    ' {backup_src}'
+                    ' {new_dir}'
+                    ).format(**rsync_kwargs)
+        rsync_output = subprocess.check_output(cmd_text)
+    
     #ensure mount point is available
-    mounts = subprocess.check_output(['cat','/proc/mounts'], stderr = subprocess.PIPE)
+    mounts = subprocess.check_output(['cat','/proc/mounts']
+                                     ,stderr = subprocess.PIPE
+                                     ).decode('utf8')
     regex_host_mount = re.compile(r'(//{0}/\w+\$?) (/mnt/{0})'.format(host))
     if regex_host_mount.search(mounts): #mount point exists, continue with backup
         retval = perform_backup()
@@ -50,19 +126,6 @@ def run_backup(host, wait = 0):
 
     return retval
 
-def shuffle_dirs():
-    base_dir = HOST
-    last_dir = '{0}.{1}'.format(base_dir,str(backup_count)) #last directory to keep
-    if VERBOSE:
-        print("Shuffling dirs")
-    #iterate backward from back up count to rename dirs
-    for i in range(BACKUP_COUNT, -1, -1):
-        d = base_dir + '.' + str(i).zfill(2)
-        if os.access(d, os.F_OK):
-            if d == last_dir:
-                shutil.rmtree(d) #remove oldest directory, if exists
-            else:
-                shutil.move(d, base_dir + '.' + str(i + 1).zfill(2))
 
 def shutdown(host):
     #Shutdown of remote machine succeeded
@@ -99,55 +162,8 @@ def wake_machine(mac_addr):
             ):
         return False
 
-def rsync():
-    '''
-     Run rsync
-     Rsync options:
-        -v, --verbose               increase verbosity
-            -q, --quiet                 suppress non-error messages
-                --no-motd               suppress daemon-mode MOTD (see caveat)
-            -c, --checksum              skip based on checksum, not mod-time & size
-            -a, --archive               archive mode; equals -rlptgoD (no -H,-A,-X)
-                --no-OPTION             turn off an implied OPTION (e.g. --no-D)
-            -r, --recursive             recurse into directories
-            -R, --relative              use relative path names
-                --no-implied-dirs       don't send implied dirs with --relative
-            -b, --backup                make backups (see --suffix & --backup-dir)
-                --backup-dir=DIR        make backups into hierarchy based in DIR
-                --suffix=SUFFIX         backup suffix (default ~ w/o --backup-dir)
-            -u, --update                skip files that are newer on the receiver
-                --inplace               update destination files in-place
-                --append                append data onto shorter files
-                --append-verify         --append w/old data in file checksum
-            -d, --dirs                  transfer directories without recursing
-            -l, --links                 copy symlinks as symlinks
-         -t, --times                 preserve modification times
-    '''
-    new_dir_suffix = '.00'
-    link_dir_suffix = '.01'
-    host_root_src_dir = os.path.join(BACKUP_SRC_ROOT, HOST)
-    host_root_dst_dir = os.path.join(BACKUP_DST_ROOT, HOST)
-    rsync_kwargs = {
-                    'rsync_cmd' : '/bin/rsync'
-                    ,'link_dest' : '{}{}'.format(host_root_dst_dir, link_dir_suffix)
-                    ,'clude_file' : os.path.join(host_root_dst_dir, 'cludes')
-                    ,'log_file' : os.path.join(host_root_dst_dir, 'backup.log')
-                    ,'backup_src' : host_root_src_dir
-                    ,'target_dir' : '{}{}'.format(host_root_dst_dir, new_dir_suffix)
-                    ,'perms' : 'ug+rx,o-rwx' #used for --chmod; can be prefixed with D for directories or F for files
-                    }
-    cmd_text = (
-                '{rsync_cmd} --rltvz --progress --stats'
-                ' --chmod {perms}'
-                ' --link-dest={link_dest}'
-                ' --exclude-from={clude_file}'
-                ' --log-file={log_file}'
-                ' {backup_src}'
-                ' {target_dir}'
-                ).format(**rsync_kwargs)
-    rsync_output = subprocess.check_output(cmd_text) 
-
 def main():
+    was_off = False #was machine off before script began; initialize False
     parser = ArgumentParser(description='Pull backup for specified host, waking and shutting if desired'
                             ,usage='{} host'.format(sys.argv[1])
                             )
@@ -162,40 +178,37 @@ def main():
                         )
     
     args = parser.parse_args()
-    VERBOSE = args.verbose
-    HOST = args.host
     timer_host_alive = timer(is_alive
                              ,run_until=True
                              ,interval=10
-                             ,verbose=VERBOSE
+                             ,verbose=args.verbose
                              )
     timer_host_dead = timer(is_alive
                             ,run_until=False
                             ,interval=10
-                            ,verbose=VERBOSE
+                            ,verbose=args.verbose
                             )
     if is_alive(args.host): #host online
-        WAS_OFF = False
-        backup_retval = run_backup(HOST, wait=30)
+        backup_retval = run_backup(args.host)
     elif args.aggressive: #host offline and we need to wake
-        WAS_OFF = True
-        if wake_machine(MAC_ADDRS[HOST]):
-            alive_retval = timer_host_alive(HOST)
+        was_off = True
+        if wake_machine(MAC_ADDRS[args.host]):
+            alive_retval = timer_host_alive(args.host)
             if alive_retval: #host now online
-                backup_retval = run_backup(HOST, wait=30)
-                if shutdown(HOST):
-                    retval_host_dead = timer_host_dead(HOST) 
+                backup_retval = run_backup(args.host, wait=30, verbose=args.verbose)
+                if shutdown(args.host):
+                    retval_host_dead = timer_host_dead(args.host) 
                     if retval_host_dead:
-                        print('{} is dead; duration: {}'.format(HOST
+                        print('{} is dead; duration: {}'.format(args.host
                                                                 ,retval_host_dead
                                                                 )
                               )
                     else:
-                        print('{} is not killable'.format(HOST))
+                        print('{} is not killable'.format(args.host))
                 else:
                     print('shutdown failed', file=sys.stderr)
             else:
-                print('{} is not wakeable'.format(HOST), file=sys.stderr)
+                print('{} is not wakeable'.format(args.host), file=sys.stderr)
         else:
             print('wake command failed', file=sys.stderr)
 
