@@ -19,7 +19,7 @@ MAC_ADDRS = {
 
 
 def run_backup(host, verbose=False, wait=0):
-    int_perms=664 #used in mkdir
+    dir_perms = 664 #used in mkdir
     host_root_src_dir = os.path.join(BACKUP_SRC_ROOT, host)
     host_root_dst_dir = os.path.join(BACKUP_DST_ROOT, host)
     new_dir_suffix = '.00'
@@ -44,21 +44,33 @@ def run_backup(host, verbose=False, wait=0):
     def shuffle_dirs():
         if verbose:
             print("Shuffling dirs")
-        #iterate backward from back up count to rename dirs
-        for i in range(BACKUP_COUNT, -1, -1):
-            d = os.path.join(host_root_dst_dir, host '.' + str(i).zfill(2)
-            print(d)
-            if os.access(d, os.F_OK):
-                if d == last_dir:
-                    shutil.rmtree(d) #remove oldest directory, if exists
-                else:
-                    shutil.move(d, new_dir + '.' + str(i + 1).zfill(2))
+        os.chdir(host_root_dst_dir)
+        
+        backup_dirs = list(pathlib.Path('.').glob('{}.[0-9][0-9]*{}'.format(
+                                                            host
+                                                            ,len(BACKUP_COUNT)
+                                                                            )
+                                                  )
+                           )
+        for backup_dir in sorted(backup_dirs, key=lambda x: int(
+                                                        x.name.split('.')[1]
+                                                        )
+                                 ,reverse=True
+                                 ):
+            base, extn = backup_dir.name.split('.')
+            if int(extn) == BACKUP_COUNT:
+                shutil.rmtree(backup_dir.name)
+            else:
+                dir_becomes = '{}.{}'.format(base, str(int(extn) + 1).zfill(2))
+                backup_dir.rename(dir_becomes)
+                print('{} becomes {}'.format(backup_dir.name, dir_becomes))
+        os.mkdir('testdir.00')
     
     def perform_backup():
         time.sleep(wait)
         os.chdir(host_root_dst_dir)
         shuffle_dirs()
-        os.mkdir(new_dir, int_perms)
+        os.mkdir(new_dir, dir_perms)
         shutil.copy('cludes', new_dir + '/') #capture cludes file for backup validation
         rsync()
         os.utime(new_dir, None) #update timestamp of newest directory
