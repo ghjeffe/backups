@@ -20,44 +20,60 @@ MAC_ADDRS = {
 
 
 def run_backup(host, verbose=False, wait=0):
-    int_perms=664 #used in mkdir
-    host_root_src_dir = os.path.join(BACKUP_SRC_ROOT, host)
-    host_root_dst_dir = os.path.join(BACKUP_DST_ROOT, host)
+    dir_perms = 664 #used in mkdir
+    host_root_src_dir = os.path.join(BACKUP_SRC_ROOT, host) #/mnt/lianli
+    host_root_dst_dir = os.path.join(BACKUP_DST_ROOT, host) #/backups/lianli
     new_dir_suffix = '.00'
     link_dir_suffix = '.01'
+
+    #hard links will be set between new_dir and link_dir for data de-duplication
     new_dir = os.path.join(
                            host_root_dst_dir
                            ,'{}{}'.format(
                                           host
                                           ,new_dir_suffix
                                           )
-                           )
-    #hard links will be set between new_dir and link_dir for data de-duplication
+                           ) #/backups/lianli/lianli.00
     link_dir = os.path.join(
                             host_root_dst_dir
                            ,'{}{}'.format(
                                           host
                                           ,link_dir_suffix
                                           )
-                           )
-    last_dir = '{}.{}'.format(new_dir, str(BACKUP_COUNT)) #last directory to keep
+                           ) #/backups/lianli/lianli.01
+
+    #last directory to keep; /backups/<host>/<host>.<suffix>
+    last_dir = pathlib.Path('{}.{}'.format(new_dir, str(BACKUP_COUNT - 1)))
 
     def shuffle_dirs():
-        host_dirs = pathlib.Path('.').glob('{}.[0-9][0-9]'.format(host))
-        for host_dir in sorted(host_dirs, key=lambda x: x.name.split('.')[1], reverse=True):
-            base, extn = host_dir.name.split('.')
-            new_dir = '{}.{}'.format(base, str(int(extn) + 1).zfill(2))
-            if int(extn) >= BACKUP_COUNT:
-                host_dir.rmdir()
+        if verbose:
+            print("Shuffling dirs")
+        os.chdir(host_root_dst_dir)
+        
+        backup_dirs = list(pathlib.Path('.').glob('{}.{}'.format(
+                                                         host
+                                                         ,'[0-9]' * len(str(
+                                                            BACKUP_COUNT - 1))
+                                                        )
+                                                  )
+                           )
+        for backup_dir in sorted(backup_dirs, key=lambda x: int(x.name.split('.')[1])
+                                 ,reverse=True
+                                 ):
+            base, extn = backup_dir.name.split('.')
+            if int(extn) == BACKUP_COUNT:
+                shutil.rmtree(backup_dir.name)
             else:
-                host_dir.rename(new_dir)
-        os.mkdir('test.00', mode=int_perms)
+                dir_becomes = '{}.{}'.format(base, str(int(extn) + 1).zfill(2))
+                backup_dir.rename(dir_becomes)
+                print('{} becomes {}'.format(backup_dir.name, dir_becomes))
+        os.mkdir('{}.{}'.format(host, new_dir))
     
     def perform_backup():
         time.sleep(wait)
         os.chdir(host_root_dst_dir)
         shuffle_dirs()
-        os.mkdir(new_dir, int_perms)
+        os.mkdir(new_dir, dir_perms)
         shutil.copy('cludes', new_dir + '/') #capture cludes file for backup validation
         rsync()
         os.utime(new_dir, None) #update timestamp of newest directory
@@ -89,7 +105,7 @@ def run_backup(host, verbose=False, wait=0):
         '''
         rsync_kwargs = {
                         'rsync_cmd' : '/bin/rsync'
-                        ,'link_dest' : '{}{}'.format(host_root_dst_dir, link_dir_suffix)
+                        ,'link_dir' : link_dir
                         ,'clude_file' : os.path.join(host_root_dst_dir, 'cludes')
                         ,'log_file' : os.path.join(host_root_dst_dir, 'backup.log')
                         ,'backup_src' : host_root_src_dir
@@ -99,7 +115,7 @@ def run_backup(host, verbose=False, wait=0):
         cmd_text = (
                     '{rsync_cmd} --rltvz --progress --stats'
                     ' --chmod {perms}'
-                    ' --link-dest={link_dest}'
+                    ' --link-dest={link_dir}'
                     ' --exclude-from={clude_file}'
                     ' --log-file={log_file}'
                     ' {backup_src}'
