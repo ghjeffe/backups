@@ -2,6 +2,7 @@
 
 from argparse import ArgumentParser
 import os
+import pathlib
 import re
 import shutil
 import subprocess
@@ -42,17 +43,15 @@ def run_backup(host, verbose=False, wait=0):
     last_dir = '{}.{}'.format(new_dir, str(BACKUP_COUNT)) #last directory to keep
 
     def shuffle_dirs():
-        if verbose:
-            print("Shuffling dirs")
-        #iterate backward from back up count to rename dirs
-        for i in range(BACKUP_COUNT, -1, -1):
-            d = os.path.join(host_root_dst_dir, host '.' + str(i).zfill(2)
-            print(d)
-            if os.access(d, os.F_OK):
-                if d == last_dir:
-                    shutil.rmtree(d) #remove oldest directory, if exists
-                else:
-                    shutil.move(d, new_dir + '.' + str(i + 1).zfill(2))
+        host_dirs = pathlib.Path('.').glob('{}.[0-9][0-9]'.format(host))
+        for host_dir in sorted(host_dirs, key=lambda x: x.name.split('.')[1], reverse=True):
+            base, extn = host_dir.name.split('.')
+            new_dir = '{}.{}'.format(base, str(int(extn) + 1).zfill(2))
+            if int(extn) >= BACKUP_COUNT:
+                host_dir.rmdir()
+            else:
+                host_dir.rename(new_dir)
+        os.mkdir('test.00', mode=int_perms)
     
     def perform_backup():
         time.sleep(wait)
@@ -118,7 +117,7 @@ def run_backup(host, verbose=False, wait=0):
     else: #attempt to mount
         cmd_text = ['mount','/mnt/{}'.format(host)]
         proc_mount = subprocess.Popen(cmd_text, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
-        out, err = proc_mount.communicate()
+        _ = proc_mount.communicate()
         if proc_mount.returncode == 0:
             retval = perform_backup()
         else: #unable to mount filesystem to perform backup, must exit
@@ -167,7 +166,7 @@ def main():
     parser = ArgumentParser(description='Pull backup for specified host, waking and shutting if desired'
                             ,usage='{} host'.format(sys.argv[1])
                             )
-    parser.add_argument('host', help='host to pull backup from')
+    parser.add_argument('host', help='host from which to pull backup')
     parser.add_argument('--aggressive'
                         ,help='wake and shut machine if necessary'
                         ,action='store_true' #false by default
@@ -208,12 +207,9 @@ def main():
                 else:
                     print('shutdown failed', file=sys.stderr)
             else:
-                print('{} is not wakeable'.format(args.host), file=sys.stderr)
+                print('timeout waiting for {} to wake'.format(args.host), file=sys.stderr)
         else:
             print('wake command failed', file=sys.stderr)
-
-def main2():
-    rsync()
 
 if __name__ == "__main__":
     sys.exit(main())
