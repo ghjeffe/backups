@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 
-from utilities import timer, pretend
+from utilities import timer
 
 BACKUP_COUNT = 21 #(3 weeks)
 BACKUP_DST_ROOT = '/backups'
@@ -33,14 +33,14 @@ def run_backup(host, verbose=False, wait=0):
                                           host
                                           ,new_dir_suffix
                                           )
-                           ) #/backups/lianli/lianli.00
+                           ) #/backups/<host>/<host>.00
     link_dir = os.path.join(
                             host_root_dst_dir
                            ,'{}{}'.format(
                                           host
                                           ,link_dir_suffix
                                           )
-                           ) #/backups/lianli/lianli.01
+                           ) #/backups/<host>/<host>.01
 
     #last directory to keep; /backups/<host>/<host>.<suffix>
     last_dir = pathlib.Path('{}.{}'.format(new_dir, str(BACKUP_COUNT - 1)))
@@ -57,12 +57,15 @@ def run_backup(host, verbose=False, wait=0):
                                                         )
                                                   )
                            )
-        for backup_dir in sorted(backup_dirs, key=lambda x: int(x.name.split('.')[1])
+        for backup_dir in sorted(backup_dirs, key=lambda x: int(x.name.split('.')[1]) #TEST: dangerous slice; might want [-1] instead
                                  ,reverse=True
                                  ):
             base, extn = backup_dir.name.split('.')
-            if int(extn) == BACKUP_COUNT:
-                shutil.rmtree(backup_dir.name)
+            try:
+                if backup_dir.resolve() == last_dir.resolve():
+                    shutil.rmtree(str(backup_dir))
+            except:
+                raise
             else:
                 dir_becomes = '{}.{}'.format(base, str(int(extn) + 1).zfill(2))
                 backup_dir.rename(dir_becomes)
