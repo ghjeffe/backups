@@ -12,8 +12,8 @@ import time
 from utilities import timer
 
 BACKUP_COUNT = 21 #(3 weeks)
-BACKUP_DST_ROOT = '/backups'
-BACKUP_SRC_ROOT = '/mnt'
+BACKUP_DST_ROOT = pathlib.Path('/backups')
+BACKUP_SRC_ROOT = pathlib.Path('/mnt')
 MAC_ADDRS = {
              'lianli':'00:03:47:f8:7d:b1'
              }
@@ -21,40 +21,39 @@ MAC_ADDRS = {
 
 def run_backup(host, verbose=False, wait=0):
     dir_perms = 664 #used in mkdir
-    host_root_src_dir = os.path.join(BACKUP_SRC_ROOT, host) #/mnt/lianli
-    host_root_dst_dir = os.path.join(BACKUP_DST_ROOT, host) #/backups/lianli
+#     host_root_src_dir = os.path.join(BACKUP_SRC_ROOT, host) #/mnt/lianli
+#     host_root_dst_dir = os.path.join(BACKUP_DST_ROOT, host) #/backups/lianli
+    host_root_src_dir = BACKUP_SRC_ROOT.joinpath(host)
+    host_root_dst_dir = BACKUP_DST_ROOT.joinpath(host)
     new_dir_suffix = '.00'
     link_dir_suffix = '.01'
 
     #hard links will be set between new_dir and link_dir for data de-duplication
-    new_dir = os.path.join(
-                           host_root_dst_dir
-                           ,'{}{}'.format(
-                                          host
-                                          ,new_dir_suffix
-                                          )
-                           ) #/backups/<host>/<host>.00
-    link_dir = os.path.join(
-                            host_root_dst_dir
-                           ,'{}{}'.format(
-                                          host
-                                          ,link_dir_suffix
-                                          )
-                           ) #/backups/<host>/<host>.01
-
+    new_dir = host_root_dst_dir.joinpath('{}{}'.format(host, new_dir_suffix))
+    link_dir = host_root_dst_dir.joinpath('{}{}'.format(host, link_dir_suffix))
+    
     #last directory to keep; /backups/<host>/<host>.<suffix>
-    last_dir = pathlib.Path('{}.{}'.format(new_dir, str(BACKUP_COUNT - 1)))
+    last_dir = host_root_dst_dir.joinpath('{}.{}'.format(host, str(BACKUP_COUNT - 1)))
 
     def shuffle_dirs():
         if verbose:
             print("Shuffling dirs")
         os.chdir(host_root_dst_dir)
         
-        backup_dirs = list(pathlib.Path('.').glob('{}.{}'.format(
-                                                         host
-                                                         ,'[0-9]' * len(str(
-                                                            BACKUP_COUNT - 1))
-                                                        )
+#         backup_dirs = list(pathlib.Path('.').glob('{}.{}'.format(
+#                                                          host
+#                                                          ,'[0-9]' * len(str(
+#                                                             BACKUP_COUNT - 1))
+#                                                         )
+#                                                   )
+#                            )
+        backup_dirs = list(host_root_src_dir.glob('{}.{}'.format(
+                                                                 host
+                                                                 ,'[0-9]' * len(str(
+                                                                                    BACKUP_COUNT - 1
+                                                                                    )
+                                                                                )
+                                                                 )
                                                   )
                            )
         for backup_dir in sorted(backup_dirs, key=lambda x: int(x.name.split('.')[1]) #TEST: dangerous slice; might want [-1] instead
@@ -70,13 +69,12 @@ def run_backup(host, verbose=False, wait=0):
                 dir_becomes = '{}.{}'.format(base, str(int(extn) + 1).zfill(2))
                 backup_dir.rename(dir_becomes)
                 print('{} becomes {}'.format(backup_dir.name, dir_becomes))
-        os.mkdir('{}.{}'.format(host, new_dir))
+        os.mkdir('{}.{}'.format(host, new_dir), mode=dir_perms)
     
     def perform_backup():
         time.sleep(wait)
         os.chdir(host_root_dst_dir)
         shuffle_dirs()
-        os.mkdir(new_dir, dir_perms)
         shutil.copy('cludes', new_dir + '/') #capture cludes file for backup validation
         rsync()
         os.utime(new_dir, None) #update timestamp of newest directory
@@ -180,10 +178,44 @@ def wake_machine(mac_addr):
             ):
         return False
 
+def run_backup_test(host, verbose=False, wait=0):
+    dir_perms = 664 #used in mkdir
+    host_root_src_dir = BACKUP_SRC_ROOT.joinpath(host)
+    host_root_dst_dir = BACKUP_DST_ROOT.joinpath(host)
+    new_dir_suffix = '.{num:0>{width}d}'.format(num=0, width=len(str(BACKUP_COUNT)))
+    link_dir_suffix = '.{num:0>{width}d}'.format(num=1, width=len(str(BACKUP_COUNT)))
+
+    def shuffle_dirs():
+        if verbose:
+            print("Shuffling dirs")
+#         os.chdir(host_root_dst_dir)
+        backup_dir_glob = '{}.{}'.format(host,'[0-9]' * len(str(BACKUP_COUNT - 1)))
+        glob_items = list(host_root_dst_dir.glob(backup_dir_glob))
+        for glob_item in sorted(glob_items, key=lambda x: int(x.name.split('.')[1]) #TEST: dangerous slice; might want [-1] instead
+                                ,reverse=True
+                                ):
+            if not glob_item.is_dir():
+                continue
+            backup_dir = glob_item #rename for sanity now that we know what it is
+            del(glob_item)
+            base, extn = backup_dir.name.split('.')
+            try:
+                if base == host and extn == BACKUP_COUNT: #ensure that we're handling a backup directory for this host
+                    shutil.rmtree(str(backup_dir))
+            except:
+                raise
+            else:
+                backup_dir.rename('{base}.{:0>{width}d}'.format(base=base, width=int(extn) + 1))
+        host_root_dst_dir.mkdir('{}.{}'.format(host, new_dir_suffix), mode=dir_perms)
+    shuffle_dirs()
+
+def maintest():
+    run_backup_test('testhost', verbose=True)
+
 def main():
     was_off = False #was machine off before script began; initialize False
     parser = ArgumentParser(description='Pull backup for specified host, waking and shutting if desired'
-                            ,usage='{} host'.format(sys.argv[1])
+                            ,usage='{} host --aggressive --verbose'.format(sys.argv[0])
                             )
     parser.add_argument('host', help='host from which to pull backup')
     parser.add_argument('--aggressive'
@@ -231,4 +263,4 @@ def main():
             print('wake command failed', file=sys.stderr)
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(maintest())
