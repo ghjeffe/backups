@@ -188,7 +188,6 @@ def run_backup_test(host, verbose=False, wait=0):
     def shuffle_dirs():
         if verbose:
             print("Shuffling dirs")
-#         os.chdir(host_root_dst_dir)
         backup_dir_glob = '{}.{}'.format(host,'[0-9]' * len(str(BACKUP_COUNT - 1)))
         glob_items = list(host_root_dst_dir.glob(backup_dir_glob))
         for glob_item in sorted(glob_items, key=lambda x: int(x.name.split('.')[1]) #TEST: dangerous slice; might want [-1] instead
