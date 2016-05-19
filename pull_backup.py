@@ -1,7 +1,10 @@
 #!/bin/python3.3
 ''' pull backups from specified host '''
 #written by Gary H Jeffers II
-#v0.1 5/19/2016
+#===============================================================================
+# v0.1.1 5/19/2016
+# v0.1.1 fixed rsync source dir issue by adding trailing slash
+#===============================================================================
 
 from argparse import ArgumentParser
 import os
@@ -115,7 +118,7 @@ def run_backup(host, verbose=False, wait=0):
                     ,'--chmod', 'ug+rx,o-rwx', '--link-dest=/backups/lianli/lianli.01'
                     ,'--exclude-from=/backups/lianli/cludes'
                     ,'--log-file=/backups/lianli/backup.log'
-                    ,'/mnt/lianli'
+                    ,'/mnt/lianli/'
                     ,'/backups/lianli/lianli.00'
                     ]
 #         cmd_text = (
@@ -128,7 +131,6 @@ def run_backup(host, verbose=False, wait=0):
 #                     ' {new_dir}'
 #                     ).format(**rsync_kwargs)
 #         rsync_output = subprocess.check_output(cmd_text)
-        print(cmd_text)
         rsync_output = subprocess.Popen(cmd_text, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         print(rsync_output.communicate())
     
