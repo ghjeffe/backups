@@ -1,4 +1,7 @@
 #!/bin/python3.3
+''' pull backups from specified host '''
+#written by Gary H Jeffers II
+#v0.1 5/19/2016
 
 from argparse import ArgumentParser
 import os
@@ -21,63 +24,58 @@ MAC_ADDRS = {
 
 def run_backup(host, verbose=False, wait=0):
     dir_perms = 664 #used in mkdir
-#     host_root_src_dir = os.path.join(BACKUP_SRC_ROOT, host) #/mnt/lianli
-#     host_root_dst_dir = os.path.join(BACKUP_DST_ROOT, host) #/backups/lianli
+    dir_pad = 0 #character used to pad newer directories to ensure consistent lengths (01 vs 21)
+    backup_dir_fmt = '{base}.{num:{pad}>{width}d}'
     host_root_src_dir = BACKUP_SRC_ROOT.joinpath(host)
     host_root_dst_dir = BACKUP_DST_ROOT.joinpath(host)
-    new_dir_suffix = '.00'
-    link_dir_suffix = '.01'
-
-    #hard links will be set between new_dir and link_dir for data de-duplication
-    new_dir = host_root_dst_dir.joinpath('{}{}'.format(host, new_dir_suffix))
-    link_dir = host_root_dst_dir.joinpath('{}{}'.format(host, link_dir_suffix))
-    
-    #last directory to keep; /backups/<host>/<host>.<suffix>
-    last_dir = host_root_dst_dir.joinpath('{}.{}'.format(host, str(BACKUP_COUNT - 1)))
+    new_dir = host_root_dst_dir.joinpath(backup_dir_fmt.format(base=host
+                                               ,num=0
+                                               ,pad=dir_pad
+                                               ,width=len(str(BACKUP_COUNT))
+                                               )
+                                         )
+    link_dir = host_root_dst_dir.joinpath(backup_dir_fmt.format(base=host
+                                               ,num=1
+                                               ,pad=dir_pad
+                                               ,width=len(str(BACKUP_COUNT))
+                                               )
+                                         )
 
     def shuffle_dirs():
         if verbose:
             print("Shuffling dirs")
-        os.chdir(host_root_dst_dir)
-        
-#         backup_dirs = list(pathlib.Path('.').glob('{}.{}'.format(
-#                                                          host
-#                                                          ,'[0-9]' * len(str(
-#                                                             BACKUP_COUNT - 1))
-#                                                         )
-#                                                   )
-#                            )
-        backup_dirs = list(host_root_src_dir.glob('{}.{}'.format(
-                                                                 host
-                                                                 ,'[0-9]' * len(str(
-                                                                                    BACKUP_COUNT - 1
-                                                                                    )
-                                                                                )
-                                                                 )
-                                                  )
-                           )
-        for backup_dir in sorted(backup_dirs, key=lambda x: int(x.name.split('.')[1]) #TEST: dangerous slice; might want [-1] instead
-                                 ,reverse=True
-                                 ):
+#         os.chdir(host_root_dst_dir)
+        backup_dir_glob = '{}.{}'.format(host,'[0-9]' * len(str(BACKUP_COUNT - 1)))
+        glob_items = list(host_root_dst_dir.glob(backup_dir_glob))
+        for glob_item in sorted(glob_items, key=lambda x: int(x.name.split('.')[1]) #TEST: dangerous slice; might want [-1] instead
+                                ,reverse=True
+                                ):
+            if not glob_item.is_dir():
+                continue
+            backup_dir = glob_item #rename for sanity now that we know what it is
+            del(glob_item)
             base, extn = backup_dir.name.split('.')
             try:
-                if backup_dir.resolve() == last_dir.resolve():
+                if base == host and extn == BACKUP_COUNT: #ensure that we're handling a backup directory for this host
                     shutil.rmtree(str(backup_dir))
             except:
                 raise
             else:
-                dir_becomes = '{}.{}'.format(base, str(int(extn) + 1).zfill(2))
-                backup_dir.rename(dir_becomes)
-                print('{} becomes {}'.format(backup_dir.name, dir_becomes))
-        os.mkdir('{}.{}'.format(host, new_dir), mode=dir_perms)
+                backup_dir.rename(backup_dir_fmt.format(base=base
+                                                        ,num=int(extn) + 1
+                                                        ,pad=0
+                                                        ,width=len(str(BACKUP_COUNT))
+                                                        )
+                                  )
+        new_dir.mkdir(mode=dir_perms)
     
     def perform_backup():
         time.sleep(wait)
-        os.chdir(host_root_dst_dir)
+        os.chdir(str(host_root_dst_dir))
         shuffle_dirs()
-        shutil.copy('cludes', new_dir + '/') #capture cludes file for backup validation
+        shutil.copy('cludes', str(new_dir) + '/') #capture cludes file for backup validation
         rsync()
-        os.utime(new_dir, None) #update timestamp of newest directory
+        os.utime(str(new_dir), None) #update timestamp of newest directory
         return True
 
     def rsync():
@@ -105,24 +103,34 @@ def run_backup(host, verbose=False, wait=0):
             -t, --times                 preserve modification times
         '''
         rsync_kwargs = {
-                        'rsync_cmd' : '/bin/rsync'
-                        ,'link_dir' : link_dir
-                        ,'clude_file' : os.path.join(host_root_dst_dir, 'cludes')
-                        ,'log_file' : os.path.join(host_root_dst_dir, 'backup.log')
-                        ,'backup_src' : host_root_src_dir
-                        ,'new_dir' : new_dir
+                        'rsync_cmd' : '/usr/bin/rsync'
+                        ,'link_dir' : str(link_dir)
+                        ,'clude_file' : os.path.join(str(host_root_dst_dir), 'cludes')
+                        ,'log_file' : os.path.join(str(host_root_dst_dir), 'backup.log')
+                        ,'backup_src' : str(host_root_src_dir)
+                        ,'new_dir' : str(new_dir)
                         ,'perms' : 'ug+rx,o-rwx' #used for --chmod; can be prefixed with D for directories or F for files
                         }
-        cmd_text = (
-                    '{rsync_cmd} --rltvz --progress --stats'
-                    ' --chmod {perms}'
-                    ' --link-dest={link_dir}'
-                    ' --exclude-from={clude_file}'
-                    ' --log-file={log_file}'
-                    ' {backup_src}'
-                    ' {new_dir}'
-                    ).format(**rsync_kwargs)
-        rsync_output = subprocess.check_output(cmd_text)
+        cmd_text = ['/usr/bin/rsync', '-rltvz', '--progress', '--stats'
+                    ,'--chmod', 'ug+rx,o-rwx', '--link-dest=/backups/lianli/lianli.01'
+                    ,'--exclude-from=/backups/lianli/cludes'
+                    ,'--log-file=/backups/lianli/backup.log'
+                    ,'/mnt/lianli'
+                    ,'/backups/lianli/lianli.00'
+                    ]
+#         cmd_text = (
+#                     '{rsync_cmd} -rltvz --progress --stats'
+#                     ' --chmod {perms}'
+#                     ' --link-dest={link_dir}'
+#                     ' --exclude-from={clude_file}'
+#                     ' --log-file={log_file}'
+#                     ' {backup_src}'
+#                     ' {new_dir}'
+#                     ).format(**rsync_kwargs)
+#         rsync_output = subprocess.check_output(cmd_text)
+        print(cmd_text)
+        rsync_output = subprocess.Popen(cmd_text, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        print(rsync_output.communicate())
     
     #ensure mount point is available
     mounts = subprocess.check_output(['cat','/proc/mounts']
@@ -132,7 +140,7 @@ def run_backup(host, verbose=False, wait=0):
     if regex_host_mount.search(mounts): #mount point exists, continue with backup
         retval = perform_backup()
     else: #attempt to mount
-        cmd_text = ['mount','/mnt/{}'.format(host)]
+        cmd_text = ['mount','{}'.format(str(host_root_dst_dir))]
         proc_mount = subprocess.Popen(cmd_text, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
         _ = proc_mount.communicate()
         if proc_mount.returncode == 0:
@@ -177,37 +185,6 @@ def wake_machine(mac_addr):
             ,subprocess.CalledProcessError #bad argument
             ):
         return False
-
-def run_backup_test(host, verbose=False, wait=0):
-    dir_perms = 664 #used in mkdir
-    host_root_src_dir = BACKUP_SRC_ROOT.joinpath(host)
-    host_root_dst_dir = BACKUP_DST_ROOT.joinpath(host)
-    new_dir_suffix = '.{num:0>{width}d}'.format(num=0, width=len(str(BACKUP_COUNT)))
-    link_dir_suffix = '.{num:0>{width}d}'.format(num=1, width=len(str(BACKUP_COUNT)))
-
-    def shuffle_dirs():
-        if verbose:
-            print("Shuffling dirs")
-#         os.chdir(host_root_dst_dir)
-        backup_dir_glob = '{}.{}'.format(host,'[0-9]' * len(str(BACKUP_COUNT - 1)))
-        glob_items = list(host_root_dst_dir.glob(backup_dir_glob))
-        for glob_item in sorted(glob_items, key=lambda x: int(x.name.split('.')[1]) #TEST: dangerous slice; might want [-1] instead
-                                ,reverse=True
-                                ):
-            if not glob_item.is_dir():
-                continue
-            backup_dir = glob_item #rename for sanity now that we know what it is
-            del(glob_item)
-            base, extn = backup_dir.name.split('.')
-            try:
-                if base == host and extn == BACKUP_COUNT: #ensure that we're handling a backup directory for this host
-                    shutil.rmtree(str(backup_dir))
-            except:
-                raise
-            else:
-                backup_dir.rename('{base}.{:0>{width}d}'.format(base=base, width=int(extn) + 1))
-        host_root_dst_dir.mkdir('{}.{}'.format(host, new_dir_suffix), mode=dir_perms)
-    shuffle_dirs()
 
 def maintest():
     run_backup_test('testhost', verbose=True)
@@ -263,4 +240,4 @@ def main():
             print('wake command failed', file=sys.stderr)
 
 if __name__ == "__main__":
-    sys.exit(maintest())
+    sys.exit(main())
