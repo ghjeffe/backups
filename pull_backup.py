@@ -3,7 +3,7 @@
 #written by Gary H Jeffers II
 #===============================================================================
 # v0.1.1 5/19/2016
-# v0.1.1 fixed rsync source dir issue by adding trailing slash
+#     -fixed rsync source dir issue by adding trailing slash
 #===============================================================================
 
 from argparse import ArgumentParser
@@ -47,7 +47,6 @@ def run_backup(host, verbose=False, wait=0):
     def shuffle_dirs():
         if verbose:
             print("Shuffling dirs")
-#         os.chdir(host_root_dst_dir)
         backup_dir_glob = '{}.{}'.format(host,'[0-9]' * len(str(BACKUP_COUNT - 1)))
         glob_items = list(host_root_dst_dir.glob(backup_dir_glob))
         for glob_item in sorted(glob_items, key=lambda x: int(x.name.split('.')[1]) #TEST: dangerous slice; might want [-1] instead
@@ -74,11 +73,11 @@ def run_backup(host, verbose=False, wait=0):
     
     def perform_backup():
         time.sleep(wait)
-        os.chdir(str(host_root_dst_dir))
+        os.chdir(str(host_root_dst_dir)) #is this necessary?
         shuffle_dirs()
         shutil.copy('cludes', str(new_dir) + '/') #capture cludes file for backup validation
         rsync()
-        os.utime(str(new_dir), None) #update timestamp of newest directory
+        new_dir.touch() #update timestamp of newest directory
         return True
 
     def rsync():
@@ -104,6 +103,7 @@ def run_backup(host, verbose=False, wait=0):
             -d, --dirs                  transfer directories without recursing
             -l, --links                 copy symlinks as symlinks
             -t, --times                 preserve modification times
+            -z, --compress              compress file data during the transfer
         '''
         rsync_kwargs = {
                         'rsync_cmd' : '/usr/bin/rsync'
@@ -111,26 +111,24 @@ def run_backup(host, verbose=False, wait=0):
                         ,'clude_file' : os.path.join(str(host_root_dst_dir), 'cludes')
                         ,'log_file' : os.path.join(str(host_root_dst_dir), 'backup.log')
                         ,'backup_src' : str(host_root_src_dir)
-                        ,'new_dir' : str(new_dir)
+                        ,'backup_dst' : str(new_dir)
                         ,'perms' : 'ug+rx,o-rwx' #used for --chmod; can be prefixed with D for directories or F for files
                         }
-        cmd_text = ['/usr/bin/rsync', '-rltvz', '--progress', '--stats'
-                    ,'--chmod', 'ug+rx,o-rwx', '--link-dest=/backups/lianli/lianli.01'
-                    ,'--exclude-from=/backups/lianli/cludes'
-                    ,'--log-file=/backups/lianli/backup.log'
-                    ,'/mnt/lianli/'
-                    ,'/backups/lianli/lianli.00'
+        cmd_text = ['/usr/bin/rsync'
+#                     ,'-rltvz', '--progress', '--stats'
+                    ,'--recursive'
+                    ,'--links'
+                    ,'--times'
+                    ,'--verbose'
+                    ,'--compress'
+                    ,'--chmod{}'.format(rsync_kwargs['perms'])
+                    ,'--link-dest={}'.format(rsync_kwargs['link_dir'])
+                    ,'--exclude-from={}'.format(rsync_kwargs['clude_file'])
+                    ,'--log-file={}'.format(rsync_kwargs['log_file'])
+                    ,rsync_kwargs['backup_src']
+                    ,rsync_kwargs['backup_dst']
                     ]
-#         cmd_text = (
-#                     '{rsync_cmd} -rltvz --progress --stats'
-#                     ' --chmod {perms}'
-#                     ' --link-dest={link_dir}'
-#                     ' --exclude-from={clude_file}'
-#                     ' --log-file={log_file}'
-#                     ' {backup_src}'
-#                     ' {new_dir}'
-#                     ).format(**rsync_kwargs)
-#         rsync_output = subprocess.check_output(cmd_text)
+
         rsync_output = subprocess.Popen(cmd_text, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         print(rsync_output.communicate())
     
@@ -149,9 +147,7 @@ def run_backup(host, verbose=False, wait=0):
             retval = perform_backup()
         else: #unable to mount filesystem to perform backup, must exit
             retval = False
-
     return retval
-
 
 def shutdown(host):
     #Shutdown of remote machine succeeded
@@ -187,9 +183,6 @@ def wake_machine(mac_addr):
             ,subprocess.CalledProcessError #bad argument
             ):
         return False
-
-def maintest():
-    run_backup_test('testhost', verbose=True)
 
 def main():
     was_off = False #was machine off before script began; initialize False
