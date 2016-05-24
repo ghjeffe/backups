@@ -74,8 +74,8 @@ def run_backup(host, verbose=False, wait=0):
     def perform_backup():
         time.sleep(wait)
         os.chdir(str(host_root_dst_dir)) #is this necessary?
-        shuffle_dirs()
-        shutil.copy('cludes', str(new_dir) + '/') #capture cludes file for backup validation
+#         shuffle_dirs()
+#         shutil.copy('cludes', str(new_dir) + '/') #capture cludes file for backup validation
         rsync()
         new_dir.touch() #update timestamp of newest directory
         return True
@@ -111,7 +111,7 @@ def run_backup(host, verbose=False, wait=0):
                         ,'link_dir' : str(link_dir)
                         ,'clude_file' : os.path.join(str(host_root_dst_dir), 'cludes')
                         ,'log_file' : os.path.join(str(host_root_dst_dir), 'backup.log')
-                        ,'backup_src' : str(host_root_src_dir)
+                        ,'backup_src' : str('{}/'.format(host_root_src_dir))
                         ,'backup_dst' : str(new_dir)
                         ,'perms' : 'ug+rx,o-rwx' #used for --chmod; can be prefixed with D for directories or F for files
                         }
@@ -131,7 +131,9 @@ def run_backup(host, verbose=False, wait=0):
                     ]
 
         rsync_output = subprocess.Popen(cmd_text, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        print(rsync_output.communicate())
+        out, err = rsync_output.communicate()
+        for line in out.decode('utf8'):
+            print(line)
     
     #ensure mount point is available
     mounts = subprocess.check_output(['cat','/proc/mounts']
