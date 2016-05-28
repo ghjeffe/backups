@@ -109,7 +109,6 @@ def run_backup(host, verbose=False, wait=0):
             -t, --times                 preserve modification times
             -z, --compress              compress file data during the transfer
         '''
-        #BUG: rsync src and dst dirs need to be adjusted since using str(path_dir)
         rsync_kwargs = {
                         'rsync_cmd' : '/usr/bin/rsync'
                         ,'link_dir' : str(link_dir)
