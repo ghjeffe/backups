@@ -31,12 +31,16 @@ def run_backup(host, verbose=False, wait=0):
     backup_dir_fmt = '{base}.{num:{pad}>{width}d}'
     host_root_src_dir = BACKUP_SRC_ROOT.joinpath(host)
     host_root_dst_dir = BACKUP_DST_ROOT.joinpath(host)
+    
+    #newest backup will go here
     new_dir = host_root_dst_dir.joinpath(backup_dir_fmt.format(base=host
                                                ,num=0
                                                ,pad=dir_pad
                                                ,width=len(str(BACKUP_COUNT))
                                                )
                                          )
+
+    #hard links will be made between new_dir and link_dir for data de-deplication
     link_dir = host_root_dst_dir.joinpath(backup_dir_fmt.format(base=host
                                                ,num=1
                                                ,pad=dir_pad
@@ -46,7 +50,7 @@ def run_backup(host, verbose=False, wait=0):
 
     def shuffle_dirs():
         if verbose:
-            print("Shuffling dirs")
+            print('shuffling dirs')
         backup_dir_glob = '{}.{}'.format(host,'[0-9]' * len(str(BACKUP_COUNT - 1)))
         glob_items = list(host_root_dst_dir.glob(backup_dir_glob))
         for glob_item in sorted(glob_items, key=lambda x: int(x.name.split('.')[1]) #TEST: dangerous slice; might want [-1] instead
@@ -74,8 +78,8 @@ def run_backup(host, verbose=False, wait=0):
     def perform_backup():
         time.sleep(wait)
         os.chdir(str(host_root_dst_dir)) #is this necessary?
-#         shuffle_dirs()
-#         shutil.copy('cludes', str(new_dir) + '/') #capture cludes file for backup validation
+        shuffle_dirs()
+        shutil.copy('cludes', str(new_dir) + '/') #capture cludes file for backup validation
         rsync()
         new_dir.touch() #update timestamp of newest directory
         return True
@@ -116,7 +120,7 @@ def run_backup(host, verbose=False, wait=0):
                         ,'perms' : 'ug+rx,o-rwx' #used for --chmod; can be prefixed with D for directories or F for files
                         }
         cmd_text = ['/usr/bin/rsync'
-#                     ,'-rltvz', '--progress', '--stats'
+                    ,'-rltvz'
                     ,'--recursive'
                     ,'--links'
                     ,'--times'
@@ -130,10 +134,10 @@ def run_backup(host, verbose=False, wait=0):
                     ,rsync_kwargs['backup_dst']
                     ]
 
+        if verbose:
+            print('calling rsync with these args:\n{}'.format(cmd_text))
         rsync_output = subprocess.Popen(cmd_text, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        out, err = rsync_output.communicate()
-        for line in out.decode('utf8'):
-            print(line)
+        _ = rsync_output.communicate()
     
     #ensure mount point is available
     mounts = subprocess.check_output(['cat','/proc/mounts']
@@ -141,12 +145,18 @@ def run_backup(host, verbose=False, wait=0):
                                      ).decode('utf8')
     regex_host_mount = re.compile(r'(//{0}/\w+\$?) (/mnt/{0})'.format(host))
     if regex_host_mount.search(mounts): #mount point exists, continue with backup
+        if verbose:
+            print('calling perform_backup')
         retval = perform_backup()
     else: #attempt to mount
-        cmd_text = ['mount','{}'.format(str(host_root_dst_dir))]
+        cmd_text = ['mount','{}'.format(str(host_root_src_dir))]
+        if verbose:
+            print('attempting to mount')
         proc_mount = subprocess.Popen(cmd_text, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
         _ = proc_mount.communicate()
         if proc_mount.returncode == 0:
+            if verbose:
+                print('mount succeeded, calling perform_backup')
             retval = perform_backup()
         else: #unable to mount filesystem to perform backup, must exit
             retval = False
@@ -214,6 +224,8 @@ def main():
                             ,verbose=args.verbose
                             )
     if is_alive(args.host): #host online
+        if args.verbose:
+            print('{} is alive, calling run_backup'.format(args.host))
         backup_retval = run_backup(args.host)
     elif args.aggressive: #host offline and we need to wake
         was_off = True
@@ -231,9 +243,9 @@ def main():
                     else:
                         print('{} is not killable'.format(args.host))
                 else:
-                    print('shutdown failed', file=sys.stderr)
+                    print('shutdown failed') #, file=sys.stderr)
             else:
-                print('timeout waiting for {} to wake'.format(args.host), file=sys.stderr)
+                print('timeout waiting for {} to wake'.format(args.host))#, file=sys.stderr)
         else:
             print('wake command failed', file=sys.stderr)
 
