@@ -2,7 +2,7 @@
 ''' pull backups from specified host '''
 #written by Gary H Jeffers II
 #===============================================================================
-# v0.1.1 5/19/2016
+# v0.1.2 5/28/2016
 #     -fixed rsync source dir issue by adding trailing slash
 #===============================================================================
 
