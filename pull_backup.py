@@ -116,7 +116,7 @@ def run_backup(host, verbose=False, wait=0):
                         ,'log_file' : os.path.join(str(host_root_dst_dir), 'backup.log')
                         ,'backup_src' : str('{}/'.format(host_root_src_dir))
                         ,'backup_dst' : str(new_dir)
-                        ,'perms' : 'ug+rx,o-rwx' #used for --chmod; can be prefixed with D for directories or F for files
+                        ,'perms' : '--chmod=Dug-w,o-rwx,Fug-wx,o-rws' #used for --chmod; can be prefixed with D for directories or F for files
                         }
         cmd_text = ['/usr/bin/rsync'
                     ,'--recursive'
