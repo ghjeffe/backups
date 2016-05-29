@@ -119,7 +119,6 @@ def run_backup(host, verbose=False, wait=0):
                         ,'perms' : 'ug+rx,o-rwx' #used for --chmod; can be prefixed with D for directories or F for files
                         }
         cmd_text = ['/usr/bin/rsync'
-                    ,'-rltvz'
                     ,'--recursive'
                     ,'--links'
                     ,'--times'
