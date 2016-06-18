@@ -4,6 +4,8 @@
 #===============================================================================
 # v0.1.2 5/28/2016
 #     -fixed rsync source dir issue by adding trailing slash
+# TODO:
+#     -handle when previous run fails (causes next run to use bad link-dest)
 #===============================================================================
 
 from argparse import ArgumentParser
