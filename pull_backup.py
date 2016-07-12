@@ -2,8 +2,7 @@
 ''' pull backups from specified host '''
 #written by Gary H Jeffers II
 #===============================================================================
-# v0.1.2 5/28/2016
-#     -fixed rsync source dir issue by adding trailing slash
+# v0.1.3 (7/11/2016)
 # TODO:
 #     -handle when previous run fails (causes next run to use bad link-dest)
 #===============================================================================
@@ -42,6 +41,9 @@ def run_backup(host, verbose=False, wait=0):
                                                )
                                          )
 
+    #to fix partial runs and incomplete link-dest, replace link-dir with something that yields:
+    #link-dest=dest/dir.{01..21}
+    
     #hard links will be made between new_dir and link_dir for data de-deplication
     link_dir = host_root_dst_dir.joinpath(backup_dir_fmt.format(base=host
                                                ,num=1
