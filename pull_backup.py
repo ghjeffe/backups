@@ -32,6 +32,7 @@ def run_backup(host, verbose=False, wait=0):
     backup_dir_fmt = '{base}.{num:{pad}>{width}d}'
     host_root_src_dir = BACKUP_SRC_ROOT.joinpath(host)
     host_root_dst_dir = BACKUP_DST_ROOT.joinpath(host)
+    os.chdir(str(host_root_dst_dir))
     
     #newest backup will go here
     new_dir = host_root_dst_dir.joinpath(backup_dir_fmt.format(base=host
@@ -39,18 +40,11 @@ def run_backup(host, verbose=False, wait=0):
                                                ,pad=dir_pad
                                                ,width=len(str(BACKUP_COUNT))
                                                )
-                                         )
-
-    #to fix partial runs and incomplete link-dest, replace link-dir with something that yields:
-    #link-dest=dest/dir.{01..21}
     
     #hard links will be made between new_dir and link_dir for data de-deplication
-    link_dir = host_root_dst_dir.joinpath(backup_dir_fmt.format(base=host
-                                               ,num=1
-                                               ,pad=dir_pad
-                                               ,width=len(str(BACKUP_COUNT))
-                                               )
-                                         )
+    link_dir = ', '.join('link-dest={}'.format(item) for item in os.listdir() if not item.split('.')[-1].endswith('.00')) #grab everything except new_dir
+
+    #link_dir = host_root_dst_dir.joinpath(backup_dir_fmt.format(base=host,num=1,pad=dir_pad,width=len(str(BACKUP_COUNT))))
 
     def shuffle_dirs():
         if verbose:
@@ -81,7 +75,6 @@ def run_backup(host, verbose=False, wait=0):
     
     def perform_backup():
         time.sleep(wait)
-        os.chdir(str(host_root_dst_dir)) #is this necessary?
         shuffle_dirs()
         shutil.copy('cludes', str(new_dir) + '/') #capture cludes file for backup validation
         rsync()
