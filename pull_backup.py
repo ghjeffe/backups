@@ -40,9 +40,22 @@ def run_backup(host, verbose=False, wait=0):
                                                ,pad=dir_pad
                                                ,width=len(str(BACKUP_COUNT))
                                                )
+                                         )
     
     #hard links will be made between new_dir and link_dir for data de-deplication
-    link_dir = ', '.join('link-dest={}'.format(item) for item in os.listdir() if not item.split('.')[-1].endswith('.00')) #grab everything except new_dir
+    #grab everything except new_dir
+    #--link-dest is relative to destination directory (hence the ../)
+    #BUG: Since this creates a string with spaces, when it gets added to the rsync args
+        #the args are not parsed individually and rsync ignores. Solution is a list, but
+        #would require extending the cmd_text command list and this gets a little messy.
+        #Might be the only way to do it at this point.
+    link_dir = ' '.join('--link-dest=../{}'.format(item)
+                         for item in sorted(os.listdir())
+                         if not item.split('.')[-1].endswith('00')
+                         and len(item.split('.')) == 2
+                         and item.split('.')[0] == 'lianli'
+                         ) 
+    
 
     #link_dir = host_root_dst_dir.joinpath(backup_dir_fmt.format(base=host,num=1,pad=dir_pad,width=len(str(BACKUP_COUNT))))
 
@@ -75,7 +88,7 @@ def run_backup(host, verbose=False, wait=0):
     
     def perform_backup():
         time.sleep(wait)
-        shuffle_dirs()
+        #shuffle_dirs()
         shutil.copy('cludes', str(new_dir) + '/') #capture cludes file for backup validation
         rsync()
         new_dir.touch() #update timestamp of newest directory
@@ -122,7 +135,7 @@ def run_backup(host, verbose=False, wait=0):
                     ,'--verbose'
                     ,'--compress'
                     ,'--chmod={}'.format(rsync_kwargs['perms'])
-                    ,'--link-dest={}'.format(rsync_kwargs['link_dir'])
+                    ,'{}'.format(rsync_kwargs['link_dir']) #--link-dest={}
                     ,'--exclude-from={}'.format(rsync_kwargs['clude_file'])
                     ,'--log-file={}'.format(rsync_kwargs['log_file'])
                     ,rsync_kwargs['backup_src']
@@ -130,6 +143,7 @@ def run_backup(host, verbose=False, wait=0):
                     ]
 
         if verbose:
+            print('dir {} before rsync call: {}'.format(os.getcwd(), os.listdir()))
             print('calling rsync with these args:\n{}'.format(cmd_text))
         rsync_output = subprocess.Popen(cmd_text, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         _ = rsync_output.communicate()
@@ -221,7 +235,7 @@ def main():
     if is_alive(args.host): #host online
         if args.verbose:
             print('{} is alive, calling run_backup'.format(args.host))
-        backup_retval = run_backup(args.host)
+        backup_retval = run_backup(args.host, verbose=args.verbose)
     elif args.aggressive: #host offline and we need to wake
         was_off = True
         if wake_machine(MAC_ADDRS[args.host]):
