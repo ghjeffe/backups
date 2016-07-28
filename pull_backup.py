@@ -2,9 +2,9 @@
 ''' pull backups from specified host '''
 #written by Gary H Jeffers II
 #===============================================================================
-# v0.1.3 (7/11/2016)
+# v0.1.3.1 (7/28/2016)
 # TODO:
-#     -handle when previous run fails (causes next run to use bad link-dest)
+#     -capture rsync output and send to admin
 #===============================================================================
 
 from argparse import ArgumentParser
@@ -27,37 +27,41 @@ MAC_ADDRS = {
 
 
 def run_backup(host, verbose=False, wait=0):
-    dir_perms = 664 #used in mkdir
-    dir_pad = 0 #character used to pad newer directories to ensure consistent lengths (01 vs 21)
-    backup_dir_fmt = '{base}.{num:{pad}>{width}d}'
     host_root_src_dir = BACKUP_SRC_ROOT.joinpath(host)
     host_root_dst_dir = BACKUP_DST_ROOT.joinpath(host)
+    dir_perms = 664 #used in mkdir
+    dir_pad = 0 #character used to left-pad newer directories to ensure consistent lengths (01 vs 21)
+    backup_dir_fmt = '{host}.{suffix:{pad}>{width}}'
+    fmt_buckets = {'host':''
+                   ,'suffix':''
+                   ,'pad':dir_pad
+                   ,'width':len(str(BACKUP_COUNT))
+                   } #passed into backup_dir_fmt to match host dirs for link_dirs
+    link_dirs = [] #holds list of links for rsync to use for link-dest arg
     os.chdir(str(host_root_dst_dir))
     
     #newest backup will go here
-    new_dir = host_root_dst_dir.joinpath(backup_dir_fmt.format(base=host
-                                               ,num=0
+    new_dir = host_root_dst_dir.joinpath(backup_dir_fmt.format(host=host
+                                               ,suffix=0
                                                ,pad=dir_pad
                                                ,width=len(str(BACKUP_COUNT))
                                                )
                                          )
     
-    #hard links will be made between new_dir and link_dir for data de-deplication
+    #hard links will be made between new_dir and link_dirs for data de-deplication
     #grab everything except new_dir
-    #--link-dest is relative to destination directory (hence the ../)
-    #BUG: Since this creates a string with spaces, when it gets added to the rsync args
-        #the args are not parsed individually and rsync ignores. Solution is a list, but
-        #would require extending the cmd_text command list and this gets a little messy.
-        #Might be the only way to do it at this point.
-    link_dir = ' '.join('--link-dest=../{}'.format(item)
-                         for item in sorted(os.listdir())
-                         if not item.split('.')[-1].endswith('00')
-                         and len(item.split('.')) == 2
-                         and item.split('.')[0] == 'lianli'
-                         ) 
-    
-
-    #link_dir = host_root_dst_dir.joinpath(backup_dir_fmt.format(base=host,num=1,pad=dir_pad,width=len(str(BACKUP_COUNT))))
+    #--link-dest is relative to destination directory for relative paths
+    for item in sorted(os.listdir()):
+        try:
+            fmt_buckets['host'], fmt_buckets['suffix'] = item.split('.')
+        except ValueError:
+            pass
+        else:
+            try:
+                if int(fmt_buckets['suffix']) > 0 and fmt_buckets['host'] == host:
+                    link_dirs.append('--link-dest={}'.format(host_root_dst_dir.joinpath(backup_dir_fmt.format(**fmt_buckets))))
+            except ValueError:
+                pass
 
     def shuffle_dirs():
         if verbose:
@@ -78,8 +82,8 @@ def run_backup(host, verbose=False, wait=0):
             except:
                 raise
             else:
-                backup_dir.rename(backup_dir_fmt.format(base=base
-                                                        ,num=int(extn) + 1
+                backup_dir.rename(backup_dir_fmt.format(host=base
+                                                        ,suffix=int(extn) + 1
                                                         ,pad=0
                                                         ,width=len(str(BACKUP_COUNT))
                                                         )
@@ -88,40 +92,16 @@ def run_backup(host, verbose=False, wait=0):
     
     def perform_backup():
         time.sleep(wait)
-        #shuffle_dirs()
+        shuffle_dirs()
         shutil.copy('cludes', str(new_dir) + '/') #capture cludes file for backup validation
         rsync()
         new_dir.touch() #update timestamp of newest directory
         return True
 
     def rsync():
-        '''
-         Run rsync
-         Rsync options:
-            -v, --verbose               increase verbosity
-            -q, --quiet                 suppress non-error messages
-                --no-motd               suppress daemon-mode MOTD (see caveat)
-            -c, --checksum              skip based on checksum, not mod-time & size
-            -a, --archive               archive mode; equals -rlptgoD (no -H,-A,-X)
-                --no-OPTION             turn off an implied OPTION (e.g. --no-D)
-            -r, --recursive             recurse into directories
-            -R, --relative              use relative path names
-                --no-implied-dirs       don't send implied dirs with --relative
-            -b, --backup                make backups (see --suffix & --backup-dir)
-                --backup-dir=DIR        make backups into hierarchy based in DIR
-                --suffix=SUFFIX         backup suffix (default ~ w/o --backup-dir)
-            -u, --update                skip files that are newer on the receiver
-                --inplace               update destination files in-place
-                --append                append data onto shorter files
-                --append-verify         --append w/old data in file checksum
-            -d, --dirs                  transfer directories without recursing
-            -l, --links                 copy symlinks as symlinks
-            -t, --times                 preserve modification times
-            -z, --compress              compress file data during the transfer
-        '''
         rsync_kwargs = {
                         'rsync_cmd' : '/usr/bin/rsync'
-                        ,'link_dir' : str(link_dir)
+                        ,'link_dirs' : str(link_dirs)
                         ,'clude_file' : os.path.join(str(host_root_dst_dir), 'cludes')
                         ,'log_file' : os.path.join(str(host_root_dst_dir), 'backup.log')
                         ,'backup_src' : str('{}/'.format(host_root_src_dir))
@@ -135,12 +115,13 @@ def run_backup(host, verbose=False, wait=0):
                     ,'--verbose'
                     ,'--compress'
                     ,'--chmod={}'.format(rsync_kwargs['perms'])
-                    ,'{}'.format(rsync_kwargs['link_dir']) #--link-dest={}
-                    ,'--exclude-from={}'.format(rsync_kwargs['clude_file'])
-                    ,'--log-file={}'.format(rsync_kwargs['log_file'])
-                    ,rsync_kwargs['backup_src']
-                    ,rsync_kwargs['backup_dst']
                     ]
+        cmd_text.extend(link_dirs)
+        cmd_text.extend(['--exclude-from={}'.format(rsync_kwargs['clude_file'])
+                        ,'--log-file={}'.format(rsync_kwargs['log_file'])
+                        ,rsync_kwargs['backup_src']
+                        ,rsync_kwargs['backup_dst']
+                        ])
 
         if verbose:
             print('dir {} before rsync call: {}'.format(os.getcwd(), os.listdir()))
@@ -257,6 +238,9 @@ def main():
                 print('timeout waiting for {} to wake'.format(args.host))#, file=sys.stderr)
         else:
             print('wake command failed', file=sys.stderr)
+
+def main_test():
+    run_backup('lianli', verbose=True)
 
 if __name__ == "__main__":
     sys.exit(main())
