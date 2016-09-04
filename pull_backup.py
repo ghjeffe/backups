@@ -108,7 +108,7 @@ def run_backup(host, verbose=False, wait=0):
                         ,'backup_dst' : str(new_dir)
                         ,'perms' : 'Dug-w,o-rwx,Fug-wx,o-rws' #used for --chmod; can be prefixed with D for directories or F for files
                         }
-        cmd_text = ['/usr/bin/rsync'
+        rsync_cmd_text = ['/usr/bin/rsync'
                     ,'--recursive'
                     ,'--links'
                     ,'--times'
@@ -116,8 +116,8 @@ def run_backup(host, verbose=False, wait=0):
                     ,'--compress'
                     ,'--chmod={}'.format(rsync_kwargs['perms'])
                     ]
-        cmd_text.extend(link_dirs)
-        cmd_text.extend(['--exclude-from={}'.format(rsync_kwargs['clude_file'])
+        rsync_cmd_text(link_dirs)
+        rsync_cmd_text(['--exclude-from={}'.format(rsync_kwargs['clude_file'])
                         ,'--log-file={}'.format(rsync_kwargs['log_file'])
                         ,rsync_kwargs['backup_src']
                         ,rsync_kwargs['backup_dst']
@@ -125,9 +125,9 @@ def run_backup(host, verbose=False, wait=0):
 
         if verbose:
             print('dir {} before rsync call: {}'.format(os.getcwd(), os.listdir()))
-            print('calling rsync with these args:\n{}'.format(cmd_text))
-        rsync_output = subprocess.Popen(cmd_text, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        _ = rsync_output.communicate()
+            print('calling rsync with these args:\n{}'.format(rsync_cmd_text))
+        rsync_cmd = subprocess.Popen(rsync_cmd_text, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        rsync_output = rsync_cmd.communicate()
     
     #ensure mount point is available
     mounts = subprocess.check_output(['cat','/proc/mounts']
