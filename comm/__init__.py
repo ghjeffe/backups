@@ -4,17 +4,17 @@ from email.MIMEText import MIMEText
 
 app_pass = 'nzhsifueiffygcit' 
 
-fromaddr = "garyjeffersii@gmail.com"
-toaddr = "garyjeffersii@gmail.com"
+from_addr = "garyjeffersii@gmail.com"
+to_addr = "garyjeffersii@gmail.com"
 msg = MIMEMultipart()
-msg['From'] = fromaddr
-msg['To'] = toaddr
+msg['From'] = from_addr
+msg['To'] = to_addr
 msg['Subject'] = "Backups"
 body = "swedish horses"
 msg.attach(MIMEText(body, 'plain'))
 server = smtplib.SMTP('smtp.gmail.com', 587)
 server.starttls()
-server.login(fromaddr, app_pass)
+server.login(from_addr, app_pass)
 text = msg.as_string()
-server.sendmail(fromaddr, toaddr, text)
+server.sendmail(from_addr, to_addr, text)
 server.quit()
