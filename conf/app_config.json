@@ -1,0 +1,13 @@
+{
+    "backup_count": 21
+    ,"backup_dst_root": "/backups"
+    ,"backup_src_root": "/mnt"
+    ,"hosts": {
+        "lianli": {
+            "mac_addr": "00:03:47:f8:7d:b1"
+            ,"mode": "aggressive"
+            ,"ip_addr": "x.x.x.x"
+            ,"backup_count": ""
+        }
+    }
+}
