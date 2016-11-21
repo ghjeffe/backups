@@ -48,20 +48,35 @@ def run_backup(host, verbose=False, wait=0):
                                                )
                                          )
     
-    #hard links will be made between new_dir and link_dirs for data de-deplication
-    #grab everything except new_dir
-    #--link-dest is relative to destination directory for relative paths
-    for item in sorted(os.listdir()):
-        try:
-            fmt_buckets['host'], fmt_buckets['suffix'] = item.split('.')
-        except ValueError:
-            pass
-        else:
-            try:
-                if int(fmt_buckets['suffix']) > 0 and fmt_buckets['host'] == host:
-                    link_dirs.append('--link-dest={}'.format(host_root_dst_dir.joinpath(backup_dir_fmt.format(**fmt_buckets))))
-            except ValueError:
-                pass
+    def get_link_dirs(dst_dir=host_root_dst_dir):
+        items = []
+        for item in os.listdir(dst_dir):
+            base, suff, *_ = item.split('.')
+            if (
+                base == host
+                and suff.isnumeric()
+                and int(suff) < BACKUP_COUNT and int(suff) > 0
+                ):
+                items.append('--link-dest={}'.format(item))
+        return items
+    
+    #===========================================================================
+    # def get_link_dirs():
+    #     #hard links will be made between new_dir and link_dirs for data de-deplication
+    #     #grab everything except new_dir
+    #     #--link-dest is relative to destination directory for relative paths
+    #     for item in sorted(os.listdir()):
+    #         try:
+    #             fmt_buckets['host'], fmt_buckets['suffix'] = item.split('.')
+    #         except ValueError:
+    #             pass
+    #         else:
+    #             try:
+    #                 if int(fmt_buckets['suffix']) > 0 and fmt_buckets['host'] == host:
+    #                     link_dirs.append('--link-dest={}'.format(host_root_dst_dir.joinpath(backup_dir_fmt.format(**fmt_buckets))))
+    #             except ValueError:
+    #                 pass
+    #===========================================================================
 
     def shuffle_dirs():
         if verbose:
@@ -93,6 +108,7 @@ def run_backup(host, verbose=False, wait=0):
     def perform_backup():
         time.sleep(wait)
         shuffle_dirs()
+        link_dirs = get_link_dirs()
         shutil.copy('cludes', str(new_dir) + '/') #capture cludes file for backup validation
         rsync()
         new_dir.touch() #update timestamp of newest directory
