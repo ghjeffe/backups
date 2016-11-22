@@ -232,29 +232,31 @@ def main():
         BACKUP_SRC_ROOT = conf['backup_src_root']
         BACKUP_DST_ROOT = conf['backup_dst_root']
         mac_addr = conf['hosts'][args.host]['mac_addr']
+        mode = args.aggressive if args.aggressive else conf['hosts'][args.host]['mode']
 
 
     if is_alive(args.host): #host online
         if args.verbose:
             print('{} is alive, calling run_backup'.format(args.host))
         backup_retval = run_backup(args.host, verbose=args.verbose)
-    elif args.aggressive: #host offline and we need to wake
+    elif mode == 'aggressive' or mode == 'assertive': #host offline and we need to wake
         was_off = True
         if wake_machine(mac_addr):
             alive_retval = timer_host_alive(args.host)
             if alive_retval: #host now online
                 backup_retval = run_backup(args.host, wait=30, verbose=args.verbose)
-                if shutdown(args.host):
-                    retval_host_dead = timer_host_dead(args.host) 
-                    if retval_host_dead:
-                        print('{} is dead; duration: {}'.format(args.host
-                                                                ,retval_host_dead
-                                                                )
-                              )
+                if mode == 'aggressive':
+                    if shutdown(args.host):
+                        retval_host_dead = timer_host_dead(args.host) 
+                        if retval_host_dead:
+                            print('{} is dead; duration: {}'.format(args.host
+                                                                    ,retval_host_dead
+                                                                    )
+                                  )
+                        else:
+                            print('{} is not killable'.format(args.host))
                     else:
-                        print('{} is not killable'.format(args.host))
-                else:
-                    print('shutdown failed') #, file=sys.stderr)
+                        print('shutdown failed') #, file=sys.stderr)
             else:
                 print('timeout waiting for {} to wake'.format(args.host))#, file=sys.stderr)
         else:
