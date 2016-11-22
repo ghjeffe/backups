@@ -8,6 +8,7 @@
 #===============================================================================
 
 from argparse import ArgumentParser
+import json
 import os
 import pathlib
 import re
@@ -18,13 +19,9 @@ import time
 
 from utilities import timer
 
-BACKUP_COUNT = 21 #(3 weeks)
-BACKUP_DST_ROOT = pathlib.Path('/backups')
-BACKUP_SRC_ROOT = pathlib.Path('/mnt')
-MAC_ADDRS = {
-             'lianli':'00:03:47:f8:7d:b1'
-             }
-
+BACKUP_COUNT = None
+BACKUP_DST_ROOT = None
+BACKUP_SRC_ROOT = None
 
 def run_backup(host, verbose=False, wait=0):
     host_root_src_dir = BACKUP_SRC_ROOT.joinpath(host)
@@ -229,13 +226,21 @@ def main():
                             ,interval=10
                             ,verbose=args.verbose
                             )
+    with open('conf/app_config.json') as fh:
+        conf = json.load(fh)
+        BACKUP_COUNT = conf['hosts'][args.host]['backup_count'] if conf['hosts'][args.host]['backup_count'] else conf['backup_count']
+        BACKUP_SRC_ROOT = conf['backup_src_root']
+        BACKUP_DST_ROOT = conf['backup_dst_root']
+        mac_addr = conf['hosts'][args.host]['mac_addr']
+
+
     if is_alive(args.host): #host online
         if args.verbose:
             print('{} is alive, calling run_backup'.format(args.host))
         backup_retval = run_backup(args.host, verbose=args.verbose)
     elif args.aggressive: #host offline and we need to wake
         was_off = True
-        if wake_machine(MAC_ADDRS[args.host]):
+        if wake_machine(mac_addr):
             alive_retval = timer_host_alive(args.host)
             if alive_retval: #host now online
                 backup_retval = run_backup(args.host, wait=30, verbose=args.verbose)
