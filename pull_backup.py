@@ -17,11 +17,18 @@ import subprocess
 import sys
 import time
 
+from net_tools import pinger
 from utilities import timer
+from wakeonlan import wol
 
 BACKUP_COUNT = None
 BACKUP_DST_ROOT = None
 BACKUP_SRC_ROOT = None
+VERBOSE = False
+
+def conditional_print(msg):
+    if VERBOSE:
+        print(msg)
 
 def run_backup(host, verbose=False, wait=0):
     host_root_src_dir = BACKUP_SRC_ROOT.joinpath(host)
@@ -76,8 +83,7 @@ def run_backup(host, verbose=False, wait=0):
     #===========================================================================
 
     def shuffle_dirs():
-        if verbose:
-            print('shuffling dirs')
+        conditional_print('shuffling dirs')
         backup_dir_glob = '{}.{}'.format(host,'[0-9]' * len(str(BACKUP_COUNT - 1)))
         glob_items = list(host_root_dst_dir.glob(backup_dir_glob))
         for glob_item in sorted(glob_items, key=lambda x: int(x.name.split('.')[1]) #TEST: dangerous slice; might want [-1] instead
@@ -136,9 +142,8 @@ def run_backup(host, verbose=False, wait=0):
                         ,rsync_kwargs['backup_dst']
                         ])
 
-        if verbose:
-            print('dir {} before rsync call: {}'.format(os.getcwd(), os.listdir()))
-            print('calling rsync with these args:\n{}'.format(rsync_cmd_text))
+        conditional_print('dir {} before rsync call: {}'.format(os.getcwd(), os.listdir()))
+        conditional_print('calling rsync with these args:\n{}'.format(rsync_cmd_text))
         rsync_cmd = subprocess.Popen(rsync_cmd_text, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         rsync_output = rsync_cmd.communicate()
     
@@ -148,18 +153,15 @@ def run_backup(host, verbose=False, wait=0):
                                      ).decode('utf8')
     regex_host_mount = re.compile(r'(//{0}/\w+\$?) (/mnt/{0})'.format(host))
     if regex_host_mount.search(mounts): #mount point exists, continue with backup
-        if verbose:
-            print('calling perform_backup')
+        conditional_print('calling perform_backup')
         retval = perform_backup()
     else: #attempt to mount
         cmd_text = ['mount','{}'.format(str(host_root_src_dir))]
-        if verbose:
-            print('attempting to mount')
+        conditional_print('attempting to mount')
         proc_mount = subprocess.Popen(cmd_text, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
         _ = proc_mount.communicate()
         if proc_mount.returncode == 0:
-            if verbose:
-                print('mount succeeded, calling perform_backup')
+            conditional_print('mount succeeded, calling perform_backup')
             retval = perform_backup()
         else: #unable to mount filesystem to perform backup, must exit
             retval = False
@@ -202,19 +204,28 @@ def wake_machine(mac_addr):
 
 def main():
     was_off = False #was machine off before script began; initialize False
-    parser = ArgumentParser(description='Pull backup for specified host, waking and shutting if desired'
-                            ,usage='{} host --aggressive --verbose'.format(sys.argv[0])
-                            )
+    
+    #set up CLI
+    mode_choices = {'wakeshut': 'wake and shut off host'
+                    ,'wakenoshut': 'wake target host and leave it on'
+                    ,'nowakenoshut': 'don\'t wake or shut host'
+                    ,'wakeshutnice': 'wake and if target was off before waking, shut it off'
+                    }
+    parser = argparse.ArgumentParser(
+                                     prog='pull_backup'
+                                     ,description='Pull backup from specified host, waking and shutting if desired'
+                                     )
     parser.add_argument('host', help='host from which to pull backup')
-    parser.add_argument('--aggressive'
-                        ,help='wake and shut machine if necessary'
-                        ,action='store_true' #false by default
-                        )
     parser.add_argument('--verbose'
                         ,help='set for print statements'
                         ,action='store_true' #false by default
                         )
-    
+    parser.add_argument('--mode'
+                        ,choices=mode_choices.keys()
+                        ,help=''.join(('{} = {}\n'.format(choice, desc)) for choice, desc in mode_choices.items())
+                        ,default='nowakenoshut'
+                        )
+
     args = parser.parse_args()
     timer_host_alive = timer(is_alive
                              ,run_until=True
@@ -226,44 +237,63 @@ def main():
                             ,interval=10
                             ,verbose=args.verbose
                             )
-    with open('conf/app_config.json') as fh:
+
+    #parse config file
+    try:
+        fh = open('conf/app_config.json')
+    except (FileNotFoundError, PermissionError):
+        #unable to read config
+        pass
+    else:
         conf = json.load(fh)
         BACKUP_COUNT = conf['hosts'][args.host]['backup_count'] if conf['hosts'][args.host]['backup_count'] else conf['backup_count']
         BACKUP_SRC_ROOT = conf['backup_src_root']
         BACKUP_DST_ROOT = conf['backup_dst_root']
         mac_addr = conf['hosts'][args.host]['mac_addr']
         mode = args.aggressive if args.aggressive else conf['hosts'][args.host]['mode']
+        VERBOSE = args.verbose
+    finally:
+        try:
+            fh.close()
+        except:
+            pass
 
-
-    if is_alive(args.host): #host online
-        if args.verbose:
-            print('{} is alive, calling run_backup'.format(args.host))
+    if pinger(args.host).reply: #host online
+        conditional_print('{} is alive, calling run_backup'.format(args.host))
         backup_retval = run_backup(args.host, verbose=args.verbose)
-    elif mode == 'aggressive' or mode == 'assertive': #host offline and we need to wake
+    elif mode[:4] == 'wake': #host offline and we need to wake
         was_off = True
-        if wake_machine(mac_addr):
+        try:
+            wol.send_magic_packet(mac_addr)
+        except ValueError:
+            #TODO: mac_addr improperly formatted; log this and exit
+            pass
+        else:
             alive_retval = timer_host_alive(args.host)
             if alive_retval: #host now online
                 backup_retval = run_backup(args.host, wait=30, verbose=args.verbose)
-                if mode == 'aggressive':
+                if (mode == 'wakeshut'
+                    or (was_off and mode == 'wakeshutnice')
+                    ):  
                     if shutdown(args.host):
                         retval_host_dead = timer_host_dead(args.host) 
                         if retval_host_dead:
-                            print('{} is dead; duration: {}'.format(args.host
-                                                                    ,retval_host_dead
-                                                                    )
-                                  )
+                            conditional_print(
+                              '{} is dead; duration: {}'.format(
+                                                                args.host
+                                                                ,retval_host_dead
+                                                                )
+                                              )
                         else:
                             print('{} is not killable'.format(args.host))
                     else:
                         print('shutdown failed') #, file=sys.stderr)
             else:
                 print('timeout waiting for {} to wake'.format(args.host))#, file=sys.stderr)
-        else:
-            print('wake command failed', file=sys.stderr)
 
 def main_test():
-    run_backup('lianli', verbose=True)
+#     run_backup('lianli', verbose=True)
+    conditional_print('testing')
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main_test())
