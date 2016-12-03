@@ -18,7 +18,7 @@ import sys
 import time
 
 from net_tools import pinger
-from utilities import timer
+from utilities import timer, shutdown
 from wakeonlan import wol
 
 BACKUP_COUNT = None
@@ -63,24 +63,6 @@ def run_backup(host, verbose=False, wait=0):
                 ):
                 items.append('--link-dest={}'.format(item))
         return items
-    
-    #===========================================================================
-    # def get_link_dirs():
-    #     #hard links will be made between new_dir and link_dirs for data de-deplication
-    #     #grab everything except new_dir
-    #     #--link-dest is relative to destination directory for relative paths
-    #     for item in sorted(os.listdir()):
-    #         try:
-    #             fmt_buckets['host'], fmt_buckets['suffix'] = item.split('.')
-    #         except ValueError:
-    #             pass
-    #         else:
-    #             try:
-    #                 if int(fmt_buckets['suffix']) > 0 and fmt_buckets['host'] == host:
-    #                     link_dirs.append('--link-dest={}'.format(host_root_dst_dir.joinpath(backup_dir_fmt.format(**fmt_buckets))))
-    #             except ValueError:
-    #                 pass
-    #===========================================================================
 
     def shuffle_dirs():
         conditional_print('shuffling dirs')
@@ -166,42 +148,7 @@ def run_backup(host, verbose=False, wait=0):
         else: #unable to mount filesystem to perform backup, must exit
             retval = False
     return retval
-
-def shutdown(host):
-    #Shutdown of remote machine succeeded
-    regex_pw = re.compile('username=(\w*)[ \W\n]password=(\w*)[ \W\n]')
-    creds = regex_pw.search(open('/home/ghjeffeii/.smbcreds'
-                                 ,mode='r'
-                                 ,encoding='utf8'
-                                 ).read()
-                            ).group(1,2)
-    cmd_text = ['net','rpc','shutdown','-I',host,'-U','{}%{}'.format(*creds)]
-    proc_shutdown = subprocess.check_output(cmd_text, timeout=5)
-    if 'succeeded' in proc_shutdown.decode('utf8').lower():
-        return True
-    else:
-        return False
     
-def is_alive(host, attempts = 1):
-    cmd_text = ['ping', '-w', '.1', '-c', str(attempts), host]
-    try:
-        proc_ping = subprocess.check_output(cmd_text, timeout=.5)
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-        return False
-    else:
-        return True if 'ttl' in proc_ping.decode('utf8').lower() else False
-
-def wake_machine(mac_addr):
-    try:
-        subprocess.check_output(['/bin/wol',mac_addr]
-                                ,stderr=subprocess.PIPE
-                                )
-        return True
-    except (OSError #command not present
-            ,subprocess.CalledProcessError #bad argument
-            ):
-        return False
-
 def main():
     was_off = False #was machine off before script began; initialize False
     
