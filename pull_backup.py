@@ -220,11 +220,9 @@ def main():
                         ,help='set for print statements'
                         ,action='store_true' #false by default
                         )
-    parser.add_argument('--mode'
+    parser.add_argument('--alive_mode'
                         ,choices=mode_choices.keys()
-                        ,help=''.join(('{} = {}\n'.format(choice, desc)) for choice, desc in mode_choices.items())
-                        ,default='nowakenoshut'
-                        )
+                        ,help=''.join(('{} = {}\n'.format(choice, desc)) for choice, desc in mode_choices.items()))
 
     args = parser.parse_args()
     timer_host_alive = timer(is_alive
@@ -243,14 +241,17 @@ def main():
         fh = open('conf/app_config.json')
     except (FileNotFoundError, PermissionError):
         #unable to read config
+        #TODO: decide what to do when config file isnt present
         pass
     else:
         conf = json.load(fh)
         BACKUP_COUNT = conf['hosts'][args.host]['backup_count'] if conf['hosts'][args.host]['backup_count'] else conf['backup_count']
-        BACKUP_SRC_ROOT = conf['backup_src_root']
-        BACKUP_DST_ROOT = conf['backup_dst_root']
-        mac_addr = conf['hosts'][args.host]['mac_addr']
-        mode = args.aggressive if args.aggressive else conf['hosts'][args.host]['mode']
+        BACKUP_SRC_ROOT = conf['backup_src_root'] if conf['backup_src_root'] else None
+        BACKUP_DST_ROOT = conf['backup_dst_root'] if conf['backup_dst_root'] else None
+        mac_addr = conf['hosts'][args.host]['mac_addr'] if conf['hosts'][args.host]['mac_addr'] else None
+        
+        if not args.alive_mode:
+            alive_mode = conf['hosts'][args.host]['alive_mode'] if conf['hosts'][args.host]['alive_mode'] else 'nowakenoshut'
         VERBOSE = args.verbose
     finally:
         try:

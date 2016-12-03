@@ -5,7 +5,7 @@
     ,"hosts": {
         "lianli": {
             "mac_addr": "00:03:47:f8:7d:b1"
-            ,"mode": "aggressive"
+            ,"alive_mode": "aggressive"
             ,"ip_addr": "x.x.x.x"
             ,"backup_count": ""
         }
