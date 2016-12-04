@@ -192,13 +192,11 @@ def main():
         pass
     else:
         conf = json.load(fh)
-        BACKUP_COUNT = conf['hosts'][args.host]['backup_count'] if conf['hosts'][args.host]['backup_count'] else conf['backup_count']
-        BACKUP_SRC_ROOT = conf['backup_src_root'] if conf['backup_src_root'] else None
-        BACKUP_DST_ROOT = conf['backup_dst_root'] if conf['backup_dst_root'] else None
-        mac_addr = conf['hosts'][args.host]['mac_addr'] if conf['hosts'][args.host]['mac_addr'] else None
-        
-        if not args.alive_mode:
-            alive_mode = conf['hosts'][args.host]['alive_mode'] if conf['hosts'][args.host]['alive_mode'] else 'nowakenoshut'
+        BACKUP_COUNT = conf['hosts'][args.host].get('backup_count', conf['backup_count'])
+        BACKUP_SRC_ROOT = conf.get('backup_src_root', None)
+        BACKUP_DST_ROOT = conf.get('backup_dst_root', None)
+        mac_addr = conf['hosts'][args.host].get('mac_addr', None)
+        alive_mode = args.alive_mode if args.alive_mode else conf['hosts'].get(args.host, {}).get('alive_mode', conf.get('alive_mode', 'nowakenoshut'))
         VERBOSE = args.verbose
     finally:
         try:
