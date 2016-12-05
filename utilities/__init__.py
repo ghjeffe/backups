@@ -42,25 +42,25 @@ def shutdown(host):
         return False
         
 def parse_rsync_output():
-'''
-sending incremental file list
-./
-
-Number of files: 15746
-Number of files transferred: 0
-Total file size: 138395205727 bytes
-Total transferred file size: 0 bytes
-Literal data: 0 bytes
-Matched data: 0 bytes
-File list size: 268765
-File list generation time: 0.009 seconds
-File list transfer time: 0.000 seconds
-Total bytes sent: 269674
-Total bytes received: 908
-
-sent 269674 bytes  received 908 bytes  18660.83 bytes/sec
-total size is 138395205727  speedup is 511472.33
-'''
+    '''
+    sending incremental file list
+    ./
+    
+    Number of files: 15746
+    Number of files transferred: 0
+    Total file size: 138395205727 bytes
+    Total transferred file size: 0 bytes
+    Literal data: 0 bytes
+    Matched data: 0 bytes
+    File list size: 268765
+    File list generation time: 0.009 seconds
+    File list transfer time: 0.000 seconds
+    Total bytes sent: 269674
+    Total bytes received: 908
+    
+    sent 269674 bytes  received 908 bytes  18660.83 bytes/sec
+    total size is 138395205727  speedup is 511472.33
+    '''
     pass
 
 def pretend(func):

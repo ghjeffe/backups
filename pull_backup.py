@@ -1,13 +1,8 @@
 #!/bin/python3.3
 ''' pull backups from specified host '''
 #written by Gary H Jeffers II
-#===============================================================================
-# v0.1.3.1 (7/28/2016)
-# TODO:
-#     -capture rsync output and send to admin
-#===============================================================================
 
-from argparse import ArgumentParser
+import argparse
 import json
 import os
 import pathlib
@@ -17,6 +12,7 @@ import subprocess
 import sys
 import time
 
+from conf.conf_parser import get_config
 from net_tools import pinger
 from utilities import timer, shutdown
 from wakeonlan import wol
@@ -129,7 +125,7 @@ def run_backup(host, verbose=False, wait=0):
         rsync_cmd = subprocess.Popen(rsync_cmd_text, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         rsync_output = rsync_cmd.communicate()
     
-    #ensure mount point is available
+    #ensure mount point is available (linux-specific)
     mounts = subprocess.check_output(['cat','/proc/mounts']
                                      ,stderr = subprocess.PIPE
                                      ).decode('utf8')
@@ -153,11 +149,11 @@ def main():
     was_off = False #was machine off before script began; initialize False
     
     #set up CLI
-    mode_choices = {'wakeshut': 'wake and shut off host'
-                    ,'wakenoshut': 'wake target host and leave it on'
-                    ,'nowakenoshut': 'don\'t wake or shut host'
-                    ,'wakeshutnice': 'wake and if target was off before waking, shut it off'
-                    }
+    alive_mode_choices = {'wakeshut': 'wake and shut off host'
+                          ,'wakenoshut': 'wake target host and leave it on'
+                          ,'nowakenoshut': 'don\'t wake or shut host'
+                          ,'wakeshutnice': 'wake and if target was off before waking, shut it off'
+                          }
     parser = argparse.ArgumentParser(
                                      prog='pull_backup'
                                      ,description='Pull backup from specified host, waking and shutting if desired'
@@ -167,43 +163,28 @@ def main():
                         ,help='set for print statements'
                         ,action='store_true' #false by default
                         )
-    parser.add_argument('--alive_mode'
-                        ,choices=mode_choices.keys()
-                        ,help=''.join(('{} = {}\n'.format(choice, desc)) for choice, desc in mode_choices.items()))
+    parser.add_argument('--alive-mode'
+                        ,choices=alive_mode_choices.keys()
+                        ,help=''.join(('{} = {}\n'.format(choice, desc)) for choice, desc in alive_mode_choices.items()))
 
     args = parser.parse_args()
-    timer_host_alive = timer(is_alive
+    timer_host_alive = timer(pinger
                              ,run_until=True
                              ,interval=10
                              ,verbose=args.verbose
                              )
-    timer_host_dead = timer(is_alive
+    timer_host_dead = timer(pinger
                             ,run_until=False
                             ,interval=10
                             ,verbose=args.verbose
                             )
 
-    #parse config file
-    try:
-        fh = open('conf/app_config.json')
-    except (FileNotFoundError, PermissionError):
-        #unable to read config
-        #TODO: decide what to do when config file isnt present
-        pass
-    else:
-        conf = json.load(fh)
-        BACKUP_COUNT = conf['hosts'][args.host].get('backup_count', conf['backup_count'])
-        BACKUP_SRC_ROOT = conf.get('backup_src_root', None)
-        BACKUP_DST_ROOT = conf.get('backup_dst_root', None)
-        mac_addr = conf['hosts'][args.host].get('mac_addr', None)
-        alive_mode = args.alive_mode if args.alive_mode else conf['hosts'].get(args.host, {}).get('alive_mode', conf.get('alive_mode', 'nowakenoshut'))
-        VERBOSE = args.verbose
-    finally:
-        try:
-            fh.close()
-        except:
-            pass
-
+    conf = get_config(args.host)
+    BACKUP_COUNT = conf['backup_count']
+    BACKUP_DST_ROOT = conf['backup_dst_root']
+    BACKUP_SRC_ROOT = conf['backup_src_root']
+    VERBOSE = args.verbose
+    conf['alive_mode'] = args.alive_mode if args.alive_mode else conf.get('alive_mode', 'nowakenoshut')
     if pinger(args.host).reply: #host online
         conditional_print('{} is alive, calling run_backup'.format(args.host))
         backup_retval = run_backup(args.host, verbose=args.verbose)
@@ -242,4 +223,4 @@ def main_test():
     conditional_print('testing')
 
 if __name__ == "__main__":
-    sys.exit(main_test())
+    sys.exit(main())

@@ -1,14 +1,22 @@
 {
-    "backup_count": 21
-    ,"alive_mode": "wakeshutnice"
-    ,"backup_dst_root": "/backups"
-    ,"backup_src_root": "/mnt"
+    "globals": {
+        "backup_count": 3
+        ,"alive_mode": "wakeshutnice"
+        ,"backup_dst_root": "/backups"
+        ,"backup_src_root": "/mnt"
+    }
     ,"hosts": {
         "lianli": {
             "mac_addr": "00:03:47:f8:7d:b1"
             ,"alive_mode": "wakeshutnice"
             ,"ip_addr": "x.x.x.x"
-            ,"backup_count": ""
+            ,"backup_count": 21
+        }
+        ,"testhost": {
+            "mac_addr": "00:03:47:f8:7d:b9"
+            ,"alive_mode": "wakeshut"
+            ,"ip_addr": "192.168.1.1"
+            ,"backup_count": null
         }
     }
 }
