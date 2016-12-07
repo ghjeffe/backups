@@ -79,20 +79,22 @@ def run_backup(host, verbose=False, wait=0):
     #===========================================================================
 
     def shuffle_dirs():
+        #needs to use fmt_buckets somehow yet
+        extn_fmt = '{:%s%d}' % (fmt_buckets['pad'], fmt_buckets['width'])
         if verbose:
             print('shuffling dirs')
         backup_dir_glob = '{}.{}'.format(host,'[0-9]' * len(str(BACKUP_COUNT - 1)))
         glob_items = list(host_root_dst_dir.glob(backup_dir_glob))
-        for glob_item in sorted(glob_items, key=lambda x: int(x.name.split('.')[1]) #TEST: dangerous slice; might want [-1] instead
+        for glob_item in sorted(glob_items
+                                ,key=lambda x: int(x.name.split('.')[1]) #TEST: dangerous slice; might want [-1] instead
                                 ,reverse=True
                                 ):
             if not glob_item.is_dir():
                 continue
-            backup_dir = glob_item #rename for sanity now that we know what it is
-            del(glob_item)
-            base, extn = backup_dir.name.split('.')
+            base, extn = glob_item.name.split('.')
+            extn = int(extn)
             try:
-                if base == host and extn == BACKUP_COUNT: #ensure that we're handling a backup directory for this host
+                if base == host and extn >= BACKUP_COUNT: #ensure that we're handling a backup directory for this host
                     shutil.rmtree(str(backup_dir))
             except:
                 raise
