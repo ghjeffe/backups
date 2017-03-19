@@ -1,8 +1,13 @@
 #!/bin/python3.3
 ''' pull backups from specified host '''
 #written by Gary H Jeffers II
+#===============================================================================
+# v0.1.3.1 (7/28/2016)
+# TODO:
+#     -capture rsync output and send to admin
+#===============================================================================
 
-import json
+from argparse import ArgumentParser
 import os
 import pathlib
 import re
@@ -11,20 +16,15 @@ import subprocess
 import sys
 import time
 
-from cli import cli
-from conf.conf_parser import get_config
-from net_tools import pinger
-from utilities import timer, shutdown
-from wakeonlan import wol
+from utilities import timer
 
-BACKUP_COUNT = None
-BACKUP_DST_ROOT = None
-BACKUP_SRC_ROOT = None
-VERBOSE = False
+BACKUP_COUNT = 21 #(3 weeks)
+BACKUP_DST_ROOT = pathlib.Path('/backups')
+BACKUP_SRC_ROOT = pathlib.Path('/mnt')
+MAC_ADDRS = {
+             'lianli':'00:03:47:f8:7d:b1'
+             }
 
-def conditional_print(msg):
-    if VERBOSE:
-        print(msg)
 
 def run_backup(host, verbose=False, wait=0):
     host_root_src_dir = BACKUP_SRC_ROOT.joinpath(host)
@@ -50,18 +50,26 @@ def run_backup(host, verbose=False, wait=0):
     
     def get_link_dirs(dst_dir=host_root_dst_dir):
         items = []
-        for item in os.listdir(dst_dir):
-            base, suff, *_ = item.split('.')
-            if (
-                base == host
-                and suff.isnumeric()
-                and int(suff) < BACKUP_COUNT and int(suff) > 0
-                ):
-                items.append('--link-dest={}'.format(item))
+        for item in dst_dir.iterdir():
+            if not item.is_dir():
+                continue
+            try:
+                base, suff, *_ = item.name.split('.')
+            except ValueError: #likely not a dot in directory name
+                continue
+            else:
+                if (
+                    base == host
+                    and suff.isnumeric()
+                    and int(suff) < BACKUP_COUNT and int(suff) > 0
+                    ):
+                    items.append('--link-dest={}'.format(item.name))
         return items
 
+
     def shuffle_dirs():
-        conditional_print('shuffling dirs')
+        if verbose:
+            print('shuffling dirs')
         backup_dir_glob = '{}.{}'.format(host,'[0-9]' * len(str(BACKUP_COUNT - 1)))
         glob_items = list(host_root_dst_dir.glob(backup_dir_glob))
         for glob_item in sorted(glob_items, key=lambda x: int(x.name.split('.')[1]) #TEST: dangerous slice; might want [-1] instead
@@ -89,13 +97,13 @@ def run_backup(host, verbose=False, wait=0):
     def perform_backup():
         time.sleep(wait)
         shuffle_dirs()
-        link_dirs = get_link_dirs()
         shutil.copy('cludes', str(new_dir) + '/') #capture cludes file for backup validation
         rsync()
         new_dir.touch() #update timestamp of newest directory
         return True
 
     def rsync():
+        link_dirs = get_link_dirs()
         rsync_kwargs = {
                         'rsync_cmd' : '/usr/bin/rsync'
                         ,'link_dirs' : str(link_dirs)
@@ -113,95 +121,131 @@ def run_backup(host, verbose=False, wait=0):
                     ,'--compress'
                     ,'--chmod={}'.format(rsync_kwargs['perms'])
                     ]
-        rsync_cmd_text(link_dirs)
-        rsync_cmd_text(['--exclude-from={}'.format(rsync_kwargs['clude_file'])
+        rsync_cmd_text.extend(link_dirs)
+        rsync_cmd_text.extend(['--exclude-from={}'.format(rsync_kwargs['clude_file'])
                         ,'--log-file={}'.format(rsync_kwargs['log_file'])
                         ,rsync_kwargs['backup_src']
                         ,rsync_kwargs['backup_dst']
                         ])
 
-        conditional_print('dir {} before rsync call: {}'.format(os.getcwd(), os.listdir()))
-        conditional_print('calling rsync with these args:\n{}'.format(rsync_cmd_text))
+        if verbose:
+            print('dir {} before rsync call: {}'.format(os.getcwd(), os.listdir()))
+            print('calling rsync with these args:\n{}'.format(rsync_cmd_text))
         rsync_cmd = subprocess.Popen(rsync_cmd_text, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         rsync_output = rsync_cmd.communicate()
     
-    #ensure mount point is available (linux-specific)
+    #ensure mount point is available
     mounts = subprocess.check_output(['cat','/proc/mounts']
                                      ,stderr = subprocess.PIPE
                                      ).decode('utf8')
     regex_host_mount = re.compile(r'(//{0}/\w+\$?) (/mnt/{0})'.format(host))
     if regex_host_mount.search(mounts): #mount point exists, continue with backup
-        conditional_print('calling perform_backup')
+        if verbose:
+            print('calling perform_backup')
         retval = perform_backup()
     else: #attempt to mount
         cmd_text = ['mount','{}'.format(str(host_root_src_dir))]
-        conditional_print('attempting to mount')
+        if verbose:
+            print('attempting to mount source directory')
         proc_mount = subprocess.Popen(cmd_text, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
         _ = proc_mount.communicate()
         if proc_mount.returncode == 0:
-            conditional_print('mount succeeded, calling perform_backup')
+            if verbose:
+                print('mount succeeded, calling perform_backup')
             retval = perform_backup()
         else: #unable to mount filesystem to perform backup, must exit
             retval = False
     return retval
+
+def shutdown(host):
+    #Shutdown of remote machine succeeded
+    regex_pw = re.compile('username=(\w*)[ \W\n]password=(\w*)[ \W\n]')
+    creds = regex_pw.search(open('/home/ghjeffeii/.smbcreds'
+                                 ,mode='r'
+                                 ,encoding='utf8'
+                                 ).read()
+                            ).group(1,2)
+    cmd_text = ['net','rpc','shutdown','-I',host,'-U','{}%{}'.format(*creds)]
+    proc_shutdown = subprocess.check_output(cmd_text, timeout=5)
+    if 'succeeded' in proc_shutdown.decode('utf8').lower():
+        return True
+    else:
+        return False
     
+def is_alive(host, attempts = 1):
+    cmd_text = ['ping', '-w', '.1', '-c', str(attempts), host]
+    try:
+        proc_ping = subprocess.check_output(cmd_text, timeout=.5)
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+        return False
+    else:
+        return True if 'ttl' in proc_ping.decode('utf8').lower() else False
+
+def wake_machine(mac_addr):
+    try:
+        subprocess.check_output(['/bin/wol',mac_addr]
+                                ,stderr=subprocess.PIPE
+                                )
+        return True
+    except (OSError #command not present
+            ,subprocess.CalledProcessError #bad argument
+            ):
+        return False
+
 def main():
     was_off = False #was machine off before script began; initialize False
+    parser = ArgumentParser(description='Pull backup for specified host, waking and shutting if desired'
+                            ,usage='{} host --aggressive --verbose'.format(sys.argv[0])
+                            )
+    parser.add_argument('host', help='host from which to pull backup')
+    parser.add_argument('--aggressive'
+                        ,help='wake and shut machine if necessary'
+                        ,action='store_true' #false by default
+                        )
+    parser.add_argument('--verbose'
+                        ,help='set for print statements'
+                        ,action='store_true' #false by default
+                        )
     
-
-    timer_host_alive = timer(pinger
+    args = parser.parse_args()
+    timer_host_alive = timer(is_alive
                              ,run_until=True
                              ,interval=10
                              ,verbose=args.verbose
                              )
-    timer_host_dead = timer(pinger
+    timer_host_dead = timer(is_alive
                             ,run_until=False
                             ,interval=10
                             ,verbose=args.verbose
                             )
-
-    conf = get_config(args.host)
-    BACKUP_COUNT = conf['backup_count']
-    BACKUP_DST_ROOT = conf['backup_dst_root']
-    BACKUP_SRC_ROOT = conf['backup_src_root']
-    VERBOSE = args.verbose
-    conf['alive_mode'] = args.alive_mode if args.alive_mode else conf.get('alive_mode', 'nowakenoshut')
-    if pinger(args.host).reply: #host online
-        conditional_print('{} is alive, calling run_backup'.format(args.host))
+    if is_alive(args.host): #host online
+        if args.verbose:
+            print('{} is alive, calling run_backup'.format(args.host))
         backup_retval = run_backup(args.host, verbose=args.verbose)
-    elif mode[:4] == 'wake': #host offline and we need to wake
+    elif args.aggressive: #host offline and we need to wake
         was_off = True
-        try:
-            wol.send_magic_packet(mac_addr)
-        except ValueError:
-            #TODO: mac_addr improperly formatted; log this and exit
-            pass
-        else:
+        if wake_machine(MAC_ADDRS[args.host]):
             alive_retval = timer_host_alive(args.host)
             if alive_retval: #host now online
                 backup_retval = run_backup(args.host, wait=30, verbose=args.verbose)
-                if (mode == 'wakeshut'
-                    or (was_off and mode == 'wakeshutnice')
-                    ):  
-                    if shutdown(args.host):
-                        retval_host_dead = timer_host_dead(args.host) 
-                        if retval_host_dead:
-                            conditional_print(
-                              '{} is dead; duration: {}'.format(
-                                                                args.host
+                if shutdown(args.host):
+                    retval_host_dead = timer_host_dead(args.host) 
+                    if retval_host_dead:
+                        print('{} is dead; duration: {}'.format(args.host
                                                                 ,retval_host_dead
                                                                 )
-                                              )
-                        else:
-                            print('{} is not killable'.format(args.host))
+                              )
                     else:
-                        print('shutdown failed') #, file=sys.stderr)
+                        print('{} is not killable'.format(args.host))
+                else:
+                    print('shutdown failed') #, file=sys.stderr)
             else:
                 print('timeout waiting for {} to wake'.format(args.host))#, file=sys.stderr)
+        else:
+            print('wake command failed', file=sys.stderr)
 
 def main_test():
-#     run_backup('lianli', verbose=True)
-    conditional_print('testing')
+    run_backup('lianli', verbose=True)
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main_test())
