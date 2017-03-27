@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 
-from cli import cli
+from cli import cli_parser
 from conf.conf_parser import get_config
 from net_tools import pinger
 from utilities import timer, shutdown

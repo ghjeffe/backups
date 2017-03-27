@@ -16,11 +16,11 @@ tbls = ('''create table hosts
 '''create table exec
 (
    exec_id integer primary key autoincrement not null
-   ,host_id integer not null
+   ,host_id integer references hosts(host_id)
    ,start_stamp text
    ,end_stamp text
    ,args text
-   ,foreign key(host_id) references hosts(host_id)
+   #,foreign key(host_id) references hosts(host_id)
 )'''
 )
 
