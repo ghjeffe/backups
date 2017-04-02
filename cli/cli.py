@@ -1,5 +1,6 @@
 import argparse
     
+def cli_parser():
     #set up CLI
     alive_mode_choices = {'wakeshut': 'wake and shut off host'
                           ,'wakenoshut': 'wake target host and leave it on'
@@ -19,4 +20,5 @@ import argparse
                         ,choices=alive_mode_choices.keys()
                         ,help=''.join(('{} = {}\n'.format(choice, desc)) for choice, desc in alive_mode_choices.items()))
 
-    args = parser.parse_args()
+    
+    return parser

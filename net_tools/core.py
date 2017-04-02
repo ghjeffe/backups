@@ -4,8 +4,6 @@ from collections import namedtuple
 import re
 import subprocess
 
-STARTUP_CONFIG = subprocess.STARTUPINFO()
-STARTUP_CONFIG.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
 def pinger(dest, count=1, timeout=100, pad_addr=True):
     regex_dst_ip = re.compile('(?<!reply from )(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})')
@@ -29,7 +27,6 @@ def pinger(dest, count=1, timeout=100, pad_addr=True):
                              cmd_text
                              ,stdout=subprocess.PIPE
                              ,stderr=subprocess.PIPE
-                             ,startupinfo=STARTUP_CONFIG
                              )
         except: #ping command failed to run
             reply = None

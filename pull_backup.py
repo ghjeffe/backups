@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 
-from cli import cli
+import cli
 from conf.conf_parser import get_config
 from net_tools import pinger
 from utilities import timer, shutdown
@@ -22,7 +22,7 @@ BACKUP_DST_ROOT = None
 BACKUP_SRC_ROOT = None
 VERBOSE = False
 
-def conditional_print(msg):
+def conditional_print(msg): #replace with logger
     if VERBOSE:
         print(msg)
 
@@ -146,8 +146,9 @@ def run_backup(host, verbose=False, wait=0):
     return retval
     
 def main():
-    was_off = False #was machine off before script began; initialize False
+    was_off = None #was machine off before script began
     
+    cli_parser = cli.cli_parser()
 
     timer_host_alive = timer(pinger
                              ,run_until=True
@@ -167,9 +168,10 @@ def main():
     VERBOSE = args.verbose
     conf['alive_mode'] = args.alive_mode if args.alive_mode else conf.get('alive_mode', 'nowakenoshut')
     if pinger(args.host).reply: #host online
+        was_off = False
         conditional_print('{} is alive, calling run_backup'.format(args.host))
         backup_retval = run_backup(args.host, verbose=args.verbose)
-    elif mode[:4] == 'wake': #host offline and we need to wake
+    elif mode.startswith('wake'): #host offline and we need to wake
         was_off = True
         try:
             wol.send_magic_packet(mac_addr)
