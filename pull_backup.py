@@ -14,8 +14,8 @@ import time
 from cli import cli_parser
 from conf.conf_parser import get_config
 from net_tools import pinger
-from utilities import timer, shutdown
-from wakeonlan import wol
+import util
+import wol
 
 BACKUP_COUNT = None
 BACKUP_DST_ROOT = None
@@ -149,12 +149,12 @@ def main():
     was_off = False #was machine off before script began; initialize False
     
 
-    timer_host_alive = timer(pinger
+    timer_host_alive = util.timer(pinger
                              ,run_until=True
                              ,interval=10
                              ,verbose=args.verbose
                              )
-    timer_host_dead = timer(pinger
+    timer_host_dead = util.timer(pinger
                             ,run_until=False
                             ,interval=10
                             ,verbose=args.verbose
@@ -172,7 +172,7 @@ def main():
     elif mode[:4] == 'wake': #host offline and we need to wake
         was_off = True
         try:
-            wol.send_magic_packet(mac_addr)
+            wol.wol.send_magic_packet(mac_addr)
         except ValueError:
             #TODO: mac_addr improperly formatted; log this and exit
             pass
@@ -183,7 +183,7 @@ def main():
                 if (mode == 'wakeshut'
                     or (was_off and mode == 'wakeshutnice')
                     ):  
-                    if shutdown(args.host):
+                    if util.shutdown(args.host):
                         retval_host_dead = timer_host_dead(args.host) 
                         if retval_host_dead:
                             conditional_print(
