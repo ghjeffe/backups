@@ -1,5 +1,5 @@
 import sqlite3
-conn = sqlite3.connect('log.db')
+conn = sqlite3.connect('log.db') #use ':memory' for testing
 cur = conn.cursor()
 
 tbls = ('''create table hosts
@@ -20,7 +20,7 @@ tbls = ('''create table hosts
    ,start_stamp text
    ,end_stamp text
    ,args text
-   #,foreign key(host_id) references hosts(host_id)
+   ,foreign key(host_id) references hosts(host_id)
 )'''
 )
 
